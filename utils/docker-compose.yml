@@ -21,60 +21,11 @@ services:
     networks:
       - web
     restart: unless-stopped
-  db:
-    container_name: db
-    image: postgres:16
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_PASSWORD=odoo
-      - POSTGRES_USER=odoo
-      - PGDATA=/var/lib/postgresql/data/pgdata
-    volumes:
-      - ./db/postgres:/var/lib/postgresql/data/pgdata
-    restart: unless-stopped
-    networks:
-      - web
-  odoo:
-    container_name: odoo
-    build:
-      context: .
-      dockerfile: config/containers/odoo/Dockerfile
-      pull: true
-    depends_on:
-      - db
-    volumes:
-      - ./db/odoo:/var/lib/odoo
-      - ./config:/etc/odoo
-      - ../../enterprise:/mnt/enterprise-addons
-      - ./addons:/mnt/extra-addons
-    environment:
-      - HOST=db
-      - USER=odoo
-      - PASSWORD=odoo
-      - DB=postgres
-      - PORT=5432
-    command:
-      - /bin/bash
-      - -c
-      - |
-        service ssh start
-        odoo -d ${DB_NAME} --limit-time-real 0 -u ${MODULES_TO_UPDATE}
-    stdin_open: true
-    tty: true
-    restart: unless-stopped
-    networks:
-      - web
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.odoo.rule=Host(`odoo.docker.localhost`)"
-      - "traefik.http.routers.odoo.entrypoints=http"
-      - "traefik.docker.network=odoo"
-      - "traefik.http.services.odoo.loadbalancer.server.port=8069"
   wetty_shell:
     container_name: wetty_shell
     image: wettyoss/wetty:latest
-    depends_on:
-      - odoo
+    # depends_on:
+    #   - odoo
     tty: true
     command: wetty --base /
     environment:
@@ -96,9 +47,9 @@ services:
     container_name: logs
     build:
       context: .
-      dockerfile: config/containers/logs/Dockerfile
-    depends_on:
-      - odoo
+      dockerfile: config/Dockerfile
+    # depends_on:
+    #   - odoo
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: 

@@ -1,0 +1,40 @@
+services:
+  odoo:
+    container_name: odoo
+    build:
+      context: .
+      dockerfile: config/Dockerfile
+      pull: true
+    # depends_on:
+    #   - db
+    volumes:
+      - ./db:/var/lib/odoo
+      - ./config:/etc/odoo
+      - ${ENTERPRISE_PATH}:/mnt/enterprise-addons
+      - ${ADDONS_PATH}:/mnt/extra-addons
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+      - DB=postgres
+      - PORT=5432
+    command:
+      - /bin/bash
+      - -c
+      - |
+        service ssh start
+        odoo -d ${DB_NAME} --limit-time-real 0 -u ${ADDONS_TO_UPDATE}
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.odoo.rule=Host(`odoo.docker.localhost`)"
+      - "traefik.http.routers.odoo.entrypoints=http"
+      - "traefik.docker.network=odoo"
+      - "traefik.http.services.odoo.loadbalancer.server.port=8069"
+networks:
+  web:
+    external: true
