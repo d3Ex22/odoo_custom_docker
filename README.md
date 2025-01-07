@@ -11,3 +11,4 @@ Features:
 - URL: 'logs.docker.localhost' will give you access to this odoo logs and pdb.
 - URL: 'shell.docker.localhost' will give you access to this database odoo shell.
 - You can edit database name and modules to update in the .env file
+- The odoo version will be updated each time odoo release a new Dockerfile on the specified version
