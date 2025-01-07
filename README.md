@@ -22,8 +22,8 @@ Features:
 - URL: 'odoo.docker.localhost' will give you access to your odoo instance
 - URL: 'logs.docker.localhost' will give you access to this odoo logs and pdb.
 - URL: 'shell.docker.localhost' will give you access to this database odoo shell.
-- You can edit database name and modules to update in the .env file
-- The odoo version will be updated each time odoo release a new Dockerfile on the specified version
+- You can edit database name/addons to update/path to addons and enterprise in the .env file. (Leave the enterprise folder as is if you wish to create a CE Odoo)
+- The odoo version will be updated each time odoo release a new Dockerfile on the specified version.
 
 How to manage multiple projects:
 - Multiple folders:
@@ -35,3 +35,6 @@ How to manage multiple projects:
 - Multiple githubs:
     You can also manage multiple projet simply by adding theses folders in a github branch. You can keep the utils folder appart if you want.
     A .gitignore exemple is added to ignore theses folder in a github project, you can also change the path of the addons folder to have addons in the parent directory.
+
+Manage different versions of odoo:
+- Keep in mind that different versions of odoo might need different versions of postgresSQL (the database manager) and so will need different db folders. But the utils folder might not change except maybe with updates of the features.
