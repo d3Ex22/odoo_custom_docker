@@ -1,0 +1,137 @@
+services:
+  traefik:
+    container_name: traefik
+    image: traefik:latest
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker"
+      - "--entrypoints.http.address=:80"
+      - "--serversTransport.insecureSkipVerify=true"
+    ports:
+      - '80:80'
+      - '8080:8080'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`traefik.docker.localhost`)"
+      - "traefik.http.routers.api.entrypoints=http"
+      - "traefik.http.routers.api.service=api@internal"
+      - "traefik.http.services.api.loadbalancer.server.port=8080"
+    networks:
+      - web
+    restart: unless-stopped
+  db:
+    container_name: db
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - ./db/postgres:/var/lib/postgresql/data/pgdata
+    restart: unless-stopped
+    networks:
+      - web
+  odoo:
+    container_name: odoo
+    build:
+      context: .
+      dockerfile: config/containers/odoo/Dockerfile
+      pull: true
+    depends_on:
+      - db
+    volumes:
+      - ./db/odoo:/var/lib/odoo
+      - ./config:/etc/odoo
+      - ../../enterprise:/mnt/enterprise-addons
+      - ./addons:/mnt/extra-addons
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo
+      - DB=postgres
+      - PORT=5432
+    command:
+      - /bin/bash
+      - -c
+      - |
+        service ssh start
+        odoo -d ${DB_NAME} --limit-time-real 0 -u ${MODULES_TO_UPDATE}
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.odoo.rule=Host(`odoo.docker.localhost`)"
+      - "traefik.http.routers.odoo.entrypoints=http"
+      - "traefik.docker.network=odoo"
+      - "traefik.http.services.odoo.loadbalancer.server.port=8069"
+  wetty_shell:
+    container_name: wetty_shell
+    image: wettyoss/wetty:latest
+    depends_on:
+      - odoo
+    tty: true
+    command: wetty --base /
+    environment:
+      SSHHOST: 'odoo'
+      SSHPORT: 22
+      NODE_ENV: 'development'
+      SSHUSER: 'odoo'
+      SSHPASS: 'odoo'
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wetty_shell.rule=Host(`shell.docker.localhost`)"
+      - "traefik.http.routers.wetty_shell.entrypoints=http"
+      - "traefik.docker.network=wetty_shell"
+      - "traefik.http.services.wetty_shell.loadbalancer.server.port=3000"
+    restart: unless-stopped
+  logs:
+    container_name: logs
+    build:
+      context: .
+      dockerfile: config/containers/logs/Dockerfile
+    depends_on:
+      - odoo
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: 
+      - /bin/bash
+      - -c
+      - |
+        service ssh start
+        tail -F anything
+    stdin_open: true
+    tty: true
+    networks:
+      - web
+  wetty_logs:
+    container_name: wetty_logs
+    image: wettyoss/wetty:latest
+    depends_on:
+      - logs
+    tty: true
+    command: wetty --port 3001 --base /
+    environment:
+      SSHHOST: 'logs'
+      SSHPORT: 22
+      NODE_ENV: 'development'
+      SSHUSER: 'odoo'
+      SSHPASS: 'odoo'
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wetty_logs.rule=Host(`logs.docker.localhost`)"
+      - "traefik.http.routers.wetty_logs.entrypoints=http"
+      - "traefik.docker.network=wetty_logs"
+      - "traefik.http.services.wetty_logs.loadbalancer.server.port=3001"
+networks:
+  web:
+    external: true

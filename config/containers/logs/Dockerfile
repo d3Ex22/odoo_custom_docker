@@ -1,0 +1,19 @@
+FROM ubuntu:jammy
+
+RUN apt-get update && apt-get install -y openssh-server docker.io && mkdir -p /var/run/sshd && \
+    ssh-keygen -A
+
+RUN test -f /etc/ssh/sshd_config || dpkg-reconfigure openssh-server
+
+RUN useradd -m -s /bin/bash odoo && \
+    echo "odoo:odoo" | chpasswd && \
+    usermod -aG sudo,root odoo && \
+    mkdir -p /home/odoo/.ssh && \
+    chown -R odoo:odoo /home/odoo/.ssh
+
+RUN echo "odoo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+RUN echo 'while true; do' >> /etc/bash.bashrc && \
+    echo '    docker attach odoo' >> /etc/bash.bashrc && \
+    echo '    sleep 5' >> /etc/bash.bashrc && \
+    echo 'done' >> /etc/bash.bashrc
