@@ -23,7 +23,7 @@ services:
       - -c
       - |
         service ssh start
-        odoo -d ${DB_NAME} --limit-time-real 0 -u ${ADDONS_TO_UPDATE}
+        odoo -d ${DB_NAME} ${ODOO_ARGS}
     stdin_open: true
     tty: true
     restart: unless-stopped
