@@ -1,11 +1,11 @@
 # odoo_custom_docker
 Odoo custon docker with cool features
 
-Version: 17.0
+Version: 18.0
 
 How to run:
 - open cmd and execute "docker network create web" (only once)
-- run db/docker-compose.yml first. either with right click on it or with the "commande docker compose up".
+- run db/docker-compose.yml first. either with right click on it or with the command "docker compose up".
 - run the two other docker-compose.
 
 Update modules:
