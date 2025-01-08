@@ -46,7 +46,7 @@ Odoo custom Docker setup with cool features.
 
    - Simply restart the Odoo container:
      ```bash
-     docker restart <odoo_container_name>
+     docker restart odoo
      ```
    - Or you can also restart the container quickly by accessing the docker tab of your code editor and right clicking the odoo container.
    ![docker restart](https://i.postimg.cc/pXmvrHZy/image-2025-01-08-101748853.png)
