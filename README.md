@@ -6,6 +6,17 @@ Odoo custom Docker setup with cool features.
 
 **17.0**
 
+## Features
+
+- **Access Odoo Instance**: `http://odoo.docker.localhost`
+- **Access Logs and Debugging**: `http://logs.docker.localhost`
+- **Access Database Shell**: `http://shell.docker.localhost`
+- **Customizable Environment**:
+  - Edit odoo arguments, database name, addons path, or enterprise path in the `.env` file.
+  - Leave the `enterprise` folder untouched for a CE (Community Edition) Odoo setup.
+- **Automatic Version Updates**:
+  - Odoo version will update automatically when a new Dockerfile is released for the specified version.
+
 ## How to Run
 
 1. **Create a Docker Network** (only needed once):
@@ -66,17 +77,6 @@ Odoo custom Docker setup with cool features.
        ```
     2. Update all `docker-compose.yml` files to use the new network.
     3. Assign new URLs for each container using `.docker.localhost`.
-
-## Features
-
-- **Access Odoo Instance**: `http://odoo.docker.localhost`
-- **Access Logs and Debugging**: `http://logs.docker.localhost`
-- **Access Database Shell**: `http://shell.docker.localhost`
-- **Customizable Environment**:
-  - Edit odoo arguments, database name, addons path, or enterprise path in the `.env` file.
-  - Leave the `enterprise` folder untouched for a CE (Community Edition) Odoo setup.
-- **Automatic Version Updates**:
-  - Odoo version will update automatically when a new Dockerfile is released for the specified version.
 
 ## Managing Multiple Projects
 
