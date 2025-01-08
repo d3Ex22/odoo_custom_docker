@@ -1,41 +1,118 @@
-# odoo_custom_docker
-Odoo custon docker with cool features
+# odoo\_custom\_docker
 
-Version: 17.0
+Odoo custom Docker setup with cool features.
 
-How to run:
-- open cmd and execute "docker network create web" (only once)
-- run db/docker-compose.yml first. either with right click on it or with the command "docker compose up".
-- run the two other docker-compose.
+## Version
 
-Update modules:
-- if you did changes in the .env file, compose down then compose up only the odoo/docker-compose.yml file.
-- if not, simply restart the odoo container.
+**17.0**
 
-Note:
-- The docker-compose files are separated because odoo will often need to be compose down/up to change module update list and/or update modules.
-This way it keep the booting time the fastest possible because db and utils dont need to be rebooted.
-- Keep in mind that only a single container of each can run at the same time because they all use the same network. If you want to change this behaviour, simply create a new network and rename every occurence of the current network in all docker-compose.yml files. You will also need to give new url to each containers.
-URL must contain ".docker.localhost".
+## How to Run
 
+1. **Create a Docker Network** (only needed once):
 
-Features:
-- URL: 'odoo.docker.localhost' will give you access to your odoo instance
-- URL: 'logs.docker.localhost' will give you access to this odoo logs and pdb.
-- URL: 'shell.docker.localhost' will give you access to this database odoo shell.
-- You can edit database name/addons to update/path to addons and enterprise in the .env file. (Leave the enterprise folder as is if you wish to create a CE Odoo)
-- The odoo version will be updated each time odoo release a new Dockerfile on the specified version.
+   ```bash
+   docker network create web
+   ```
 
-How to manage multiple projects:
-- Multiple folders:
-    To have multiple folders cointaining each a different projet, keep the utils folder apart, it's only needed once.
-    You will need to copy paste the odoo folder for each of your projects.
-    For the database you have 2 options:
-    - either you copy paste the db folder with the odoo folder.
-    - either you keep apart with utils a db folder that will contain all the databases, and you rename the database in the .env of the odoo folder.
-- Multiple githubs:
-    You can also manage multiple projet simply by adding theses folders in a github branch. You can keep the utils folder appart if you want.
-    A .gitignore exemple is added to ignore theses folder in a github project, you can also change the path of the addons folder to have addons in the parent directory.
+2. **Run the Database Docker Compose**:
 
-Manage different versions of odoo:
-- Keep in mind that different versions of odoo might need different versions of postgresSQL (the database manager) and so will need different db folders. But the utils folder might not change except maybe with updates of the features.
+   - Execute the following command in the `db` folder:
+     ```bash
+     docker compose up
+     ```
+   - Alternatively, you can right-click on the `db/docker-compose.yml` file and choose "Compose Up" if you have installed the docker extension of your code editor.
+   ![Capture d'écran docker-compose](https://i.postimg.cc/sXrRxG2J/image-2025-01-08-101256825.png)
+
+3. **Run the Other Docker Compose Files**:
+
+   - Navigate to the `odoo` and `utils` folders and execute their respective `docker-compose.yml` files the same way.
+
+## Updating Modules
+
+1. **If Changes Were Made to the ****************`.env`**************** File**:
+
+   - Stop the Odoo container:
+     ```bash
+     docker compose down
+     ```
+   - Restart the Odoo container:
+     ```bash
+     docker compose up
+     ```
+   - Alternatively, you can also compose up and compose down using the docker extension of your code editor.
+   ![Capture d'écran docker-compose](https://i.postimg.cc/sXrRxG2J/image-2025-01-08-101256825.png)
+
+2. **If No Changes Were Made to the ****************`.env`**************** File**:
+
+   - Simply restart the Odoo container:
+     ```bash
+     docker restart <odoo_container_name>
+     ```
+   - Or you can also restart the container quickly by accessing the docker tab of your code editor and right clicking the odoo container.
+   ![docker restart](https://i.postimg.cc/pXmvrHZy/image-2025-01-08-101748853.png)
+
+## Notes
+
+- **Separation of Docker Compose Files**:
+
+  - The files are separated to allow the Odoo container to be restarted independently. This ensures minimal downtime by avoiding unnecessary restarts of the `db` and `utils` containers.
+
+- **Single Network Limitation**:
+
+  - Only one container of each type can run at a time on the same network. To allow multiple instances:
+    1. Create a new network:
+       ```bash
+       docker network create <new_network_name>
+       ```
+    2. Update all `docker-compose.yml` files to use the new network.
+    3. Assign new URLs for each container using `.docker.localhost`.
+
+## Features
+
+- **Access Odoo Instance**: `http://odoo.docker.localhost`
+- **Access Logs and Debugging**: `http://logs.docker.localhost`
+- **Access Database Shell**: `http://shell.docker.localhost`
+- **Customizable Environment**:
+  - Edit odoo arguments, database name, addons path, or enterprise path in the `.env` file.
+  - Leave the `enterprise` folder untouched for a CE (Community Edition) Odoo setup.
+- **Automatic Version Updates**:
+  - Odoo version will update automatically when a new Dockerfile is released for the specified version.
+
+## Managing Multiple Projects
+
+### Using Multiple Folders
+
+1. **Separate Project Folders**:
+
+   - Create a unique folder for each project.
+   - The `utils` folder can remain shared as it is only needed once.
+
+2. **Database Management**:
+
+   - Option 1: Copy the `db` folder for each project.
+   - Option 2: Use a single `db` folder shared across projects, and update the database name in each project's `.env` file.
+
+### Using Multiple Git Branches
+
+1. **Branch Setup**:
+
+   - Organize projects by creating separate branches.
+
+2. **Ignoring Folders in Git**:
+
+   - Use the provided `.gitignore` example to ignore specific folders in your Git project.
+
+3. **Custom Addons Folder**:
+
+   - Update the addons path in `.env` to point to a shared parent directory if needed.
+
+## Managing Different Odoo Versions
+
+- **Database Compatibility**:
+
+  - Different Odoo versions may require different PostgreSQL versions. Set up separate `db` folders for each version.
+
+- **Shared Utils**:
+
+  - The `utils` folder generally remains unchanged but may require updates for new features or compatibility adjustments.
+
