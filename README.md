@@ -9,9 +9,10 @@ How to run:
 - run the two other docker-compose.
 
 Update modules:
-- compose down then compose up only the odoo/docker-compose.yml file.
+- if you did changes in the .env file, compose down then compose up only the odoo/docker-compose.yml file.
+- if not, simply restart the odoo container.
 
-Note: 
+Note:
 - The docker-compose files are separated because odoo will often need to be compose down/up to change module update list and/or update modules.
 This way it keep the booting time the fastest possible because db and utils dont need to be rebooted.
 - Keep in mind that only a single container of each can run at the same time because they all use the same network. If you want to change this behaviour, simply create a new network and rename every occurence of the current network in all docker-compose.yml files. You will also need to give new url to each containers.
