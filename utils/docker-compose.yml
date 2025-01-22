@@ -62,6 +62,7 @@ services:
     tty: true
     networks:
       - web
+    restart: unless-stopped
   wetty_logs:
     container_name: wetty_logs
     image: wettyoss/wetty:latest
@@ -77,6 +78,7 @@ services:
       SSHPASS: 'odoo'
     networks:
       - web
+    restart: unless-stopped
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.wetty_logs.rule=Host(`logs.docker.localhost`)"

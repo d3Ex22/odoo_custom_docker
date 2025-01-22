@@ -18,7 +18,7 @@ services:
       - PASSWORD=odoo
       - DB=postgres
       - PORT=5432
-    command:
+    command: # add between service and odoo: pip install -r /mnt/extra-addons/requirements.txt 
       - /bin/bash
       - -c
       - |

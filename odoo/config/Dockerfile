@@ -1,4 +1,4 @@
-FROM odoo:17.0
+FROM odoo:15.0
 
 # Passer en tant que root pour les installations
 USER root
