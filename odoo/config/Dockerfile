@@ -18,7 +18,17 @@ mkdir -p /home/odoo && chown odoo:odoo /home/odoo
 
 # Ajouter une boucle pour relancer automatiquement la commande en cas d'échec dans /etc/bash.bashrc
 RUN echo 'while true; do' >> /etc/bash.bashrc && \
-    echo '    odoo shell -d v17 --db_host db --db_password odoo' >> /etc/bash.bashrc && \
+    echo "    clear" >> /etc/bash.bashrc && \
+    echo "    echo ''" >> /etc/bash.bashrc && \
+    echo "    echo '         ____        __                    _____   __            __  __'" >> /etc/bash.bashrc && \
+    echo "    echo '        / __ \  ____/ / ____   ____       / ___/  / /_   ___    / / / /'" >> /etc/bash.bashrc && \
+    echo "    echo '       / / / / / __  / / __ \ / __ \      \__ \  / __ \ / _ \  / / / / '" >> /etc/bash.bashrc && \
+    echo "    echo '      / /_/ / / /_/ / / /_/ // /_/ /     ___/ / / / / //  __/ / / / /  '" >> /etc/bash.bashrc && \
+    echo "    echo '      \____/  \____/  \____/ \____/     /____/ /_/ /_/ \___/ /_/ /_/   '" >> /etc/bash.bashrc && \
+    echo "    echo ''" >> /etc/bash.bashrc && \
+    echo "    echo '      -----------------------------------------------------------------'" >> /etc/bash.bashrc && \
+    echo "    echo ''" >> /etc/bash.bashrc && \
+    echo '    odoo shell -d main --db_host db --db_password odoo' >> /etc/bash.bashrc && \
     echo '    sleep 5' >> /etc/bash.bashrc && \
     echo 'done' >> /etc/bash.bashrc
 
