@@ -24,11 +24,11 @@ services:
   wetty_shell:
     container_name: wetty_shell
     image: wettyoss/wetty:latest
-    # depends_on:
-    #   - odoo
     tty: true
-    command: wetty --base /
+    command: wetty
     environment:
+      BASE: '/'
+      PORT: 3000
       SSHHOST: 'odoo'
       SSHPORT: 22
       NODE_ENV: 'development'
@@ -48,8 +48,6 @@ services:
     build:
       context: .
       dockerfile: config/Dockerfile
-    # depends_on:
-    #   - odoo
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: 
@@ -62,14 +60,17 @@ services:
     tty: true
     networks:
       - web
+    restart: unless-stopped
   wetty_logs:
     container_name: wetty_logs
     image: wettyoss/wetty:latest
     depends_on:
       - logs
     tty: true
-    command: wetty --port 3001 --base /
+    command: wetty
     environment:
+      BASE: '/'
+      PORT: 3001
       SSHHOST: 'logs'
       SSHPORT: 22
       NODE_ENV: 'development'
@@ -83,6 +84,8 @@ services:
       - "traefik.http.routers.wetty_logs.entrypoints=http"
       - "traefik.docker.network=wetty_logs"
       - "traefik.http.services.wetty_logs.loadbalancer.server.port=3001"
+    restart: unless-stopped
+
 networks:
   web:
     external: true
