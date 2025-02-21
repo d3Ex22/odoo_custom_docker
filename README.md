@@ -4,7 +4,7 @@ Odoo custom Docker setup with cool features.
 
 ## Version
 
-**17.0**
+**15.0**
 
 ## Features
 
