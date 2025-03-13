@@ -87,13 +87,14 @@ RUN echo "clear" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - switch DBNAME [-y]                      \e[32m switch Odoo the another database, can also create a new db \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo '  Odoo: '" >> /etc/bash.bashrc && \
-    echo "echo '\e[0m   - fix-reports                             \e[32m fix pdf reports by adding a line into db                   \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - fix-reports [-f]                        \e[32m fix pdf reports by adding a line into db                   \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - reboot                                  \e[32m quick reboot, will restart the odoo container              \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo '  Tools: '" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - grok                                    \e[32m launch a ngrok tunnel to the odoo container                \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo ' Args definition: '" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m  -f            \e[32m force action                                                   \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m  -na           \e[32m no anonymization                                               \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m  -s            \e[32m switch to the new database                                     \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m  -y            \e[32m confirm action                                                 \e[0m'" >> /etc/bash.bashrc && \
