@@ -43,10 +43,10 @@ RUN echo "alias cheat='/mnt/scripts/cheat.sh'" >> /etc/bash.bashrc
 RUN echo "alias copy='/mnt/scripts/copy.sh'" >> /etc/bash.bashrc
 # - drop
 RUN echo "alias drop='/mnt/scripts/drop.sh'" >> /etc/bash.bashrc
-# - export
-RUN echo "alias export='/mnt/scripts/export.sh'" >> /etc/bash.bashrc
-# - import
-RUN echo "alias import='/mnt/scripts/import.sh'" >> /etc/bash.bashrc
+# - exp
+RUN echo "alias exp='/mnt/scripts/exp.sh'" >> /etc/bash.bashrc
+# - imp
+RUN echo "alias imp='/mnt/scripts/imp.sh'" >> /etc/bash.bashrc
 # - list
 RUN echo "alias list='/mnt/scripts/list.sh'" >> /etc/bash.bashrc
 # - psql
@@ -54,6 +54,8 @@ RUN echo "alias psql='/mnt/scripts/psql.sh'" >> /etc/bash.bashrc
 # - switch
 RUN echo "alias switch='/mnt/scripts/switch.sh'" >> /etc/bash.bashrc
 
+# - fix-reports
+RUN echo "alias fix-reports='/mnt/scripts/fix-reports.sh'" >> /etc/bash.bashrc
 # - reboot
 RUN echo "alias reboot='/mnt/scripts/reboot.sh'" >> /etc/bash.bashrc
 
@@ -78,17 +80,18 @@ RUN echo "clear" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - cheat                                   \e[32m cheat database expiration date                             \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - copy NEW_DBNAME [-d SOURCE_DBNAME, -s]  \e[32m duplicate current database                                 \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - drop DBNAME [-y]                        \e[32m drop database                                              \e[0m'" >> /etc/bash.bashrc && \
-    echo "echo '\e[0m   - export [-d DBNAME]                      \e[32m export zip/sql db from psql to the db_zip folder           \e[0m'" >> /etc/bash.bashrc && \
-    echo "echo '\e[0m   - import DBNAME [-na, -s]                 \e[32m import zip/sql db from the db_zip folder and anonymize it  \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - exp [-d DBNAME]                         \e[32m export zip/sql db from psql to the db_zip folder           \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - imp DBNAME [-na, -s]                    \e[32m import zip/sql db from the db_zip folder and anonymize it  \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - list                                    \e[32m list available databases                                   \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - psql [-d DBNAME, -c COMMAND]            \e[32m launch a psql shell to the currently selected database     \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - switch DBNAME [-y]                      \e[32m switch Odoo the another database, can also create a new db \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo '  Odoo: '" >> /etc/bash.bashrc && \
-    echo "echo '\e[0m   - reboot                                \e[32m quick reboot, will restart the odoo container              \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - fix-reports                             \e[32m fix pdf reports by adding a line into db                   \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - reboot                                  \e[32m quick reboot, will restart the odoo container              \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo '  Tools: '" >> /etc/bash.bashrc && \
-    echo "echo '\e[0m   - grok                                  \e[32m launch a ngrok tunnel to the odoo container                \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - grok                                    \e[32m launch a ngrok tunnel to the odoo container                \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo ' Args definition: '" >> /etc/bash.bashrc && \
     echo "echo '\e[0m  -na           \e[32m no anonymization                                               \e[0m'" >> /etc/bash.bashrc && \
