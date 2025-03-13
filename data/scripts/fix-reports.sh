@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 # Script to check, insert, or update 'report.url' in ir_config_parameter.
 # Usage:
-#   ./set_report_url.sh [-f]
+#   fix-reports [-f]
 # Options:
 #   -f : Force replacement if key exists.
 # -----------------------------------------------------------------------------
@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "❌ Unknown option: $1"
-      echo "Usage: ./set_report_url.sh [-f]"
+      echo "Usage: fix-reports [-f]"
       exit 1
       ;;
   esac
@@ -44,19 +44,20 @@ if [ -z "$SELECTED_DB" ]; then
 fi
 
 echo "📂 Targeting database: $SELECTED_DB"
-echo "🔍 Checking key '$DB_PARAM_KEY' in table 'ir_config_parameter'..."
+echo "🔍 Checking for key '$DB_PARAM_KEY' in table 'ir_config_parameter'..."
 
 # ✅ Check if the key exists and retrieve its current value
 EXISTING_VALUE=$(docker exec db psql -U odoo -d "$SELECTED_DB" -tAc "
   SELECT value FROM ir_config_parameter WHERE key = '$DB_PARAM_KEY';
-")
+" | xargs)
 
 if [ -n "$EXISTING_VALUE" ]; then
   echo "✅ Key '$DB_PARAM_KEY' already exists in table 'ir_config_parameter'."
   echo "   Current value: '$EXISTING_VALUE'"
+  echo "   Desired value: '$DB_PARAM_VALUE'"
 
   if $FORCE; then
-    echo "⚙️  Force option enabled. Updating value to '$DB_PARAM_VALUE'..."
+    echo "⚙️  Force option enabled. Replacing existing value..."
     docker exec db psql -U odoo -d "$SELECTED_DB" -c "
       DELETE FROM ir_config_parameter WHERE key = '$DB_PARAM_KEY';
     "
@@ -71,10 +72,10 @@ if [ -n "$EXISTING_VALUE" ]; then
       exit 1
     fi
   else
-    echo "ℹ️ Use '-f' to force update of this value."
+    echo "ℹ️ To force update this value, re-run the script with '-f'."
   fi
 else
-  echo "➕ Key '$DB_PARAM_KEY' does not exist. Inserting with value '$DB_PARAM_VALUE'..."
+  echo "➕ Key '$DB_PARAM_KEY' does not exist. Inserting it with value '$DB_PARAM_VALUE'..."
   docker exec db psql -U odoo -d "$SELECTED_DB" -c "
     INSERT INTO ir_config_parameter (key, value, create_date, write_date)
     VALUES ('$DB_PARAM_KEY', '$DB_PARAM_VALUE', NOW(), NOW());
