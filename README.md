@@ -1,6 +1,6 @@
 # odoo\_custom\_docker
 
-Odoo custom Docker setup with cool features.
+Odoo custom Docker setup with advanced database management tools.
 
 ## Version
 
@@ -10,109 +10,93 @@ Odoo custom Docker setup with cool features.
 
 - **Access Odoo Instance**: `http://odoo.docker.localhost`
 - **Access Logs and Debugging**: `http://logs.docker.localhost`
+- **Access Tools and Commands**: `http://utils.docker.localhost`
 - **Access Database Shell**: `http://shell.docker.localhost`
 - **Customizable Environment**:
-  - Edit odoo arguments, database name, addons path, or enterprise path in the `.env` file.
-  - Leave the `enterprise` folder untouched for a CE (Community Edition) Odoo setup.
+  - Edit Odoo arguments and addons paths in the `.env` file. Theses are working directly with no need to compose down and up the whole container, a simple and quick 'reboot' in utils is all you need.
+  - Set the currently active database using `SELECTED_DB` in `.env` or with proper command in utils.
+  - Leave the `enterprise` pointing to an empty directory to enable community edition.
 - **Automatic Version Updates**:
   - Odoo version will update automatically when a new Dockerfile is released for the specified version.
 
+## Utilities & Command Line Tools
+
+All utilities are directly available in the **utils container shell** (access via `utils.docker.localhost`):
+
+### Database & Odoo commands:
+
+| Command                                            | Description                                                           |
+|----------------------------------------------------|-----------------------------------------------------------------------|
+| `anon`                                             | Take non-anonymized DB from `db_zip`, anonymize it, and export it.     |
+| `cheat`                                            | Cheat database expiration date.                                       |
+| `copy NEW_DBNAME [-d SOURCE_DBNAME, -s]`            | Duplicate the current or selected database.                           |
+| `drop DBNAME [-y]`                                 | Drop a database (with confirmation).                                  |
+| `export [-d DBNAME]`                               | Export database to `db_zip` as zip/sql.                               |
+| `import DBNAME [-na, -s]`                          | Import DB from `db_zip`, anonymize it unless already or -na given.    |
+| `list`                                             | List available databases.                                             |
+| `psql [-d DBNAME, -c COMMAND]`                     | Open psql shell or execute command on selected DB.                    |
+| `switch DBNAME [-y]`                               | Switch Odoo to another DB, can create a new one if missing.            |
+
+### Odoo specific:
+
+| Command  | Description                                |
+|----------|--------------------------------------------|
+| `reboot` | Quick reboot: restart only the Odoo container. |
+
+### Tools:
+
+| Command | Description                              |
+|---------|------------------------------------------|
+| `grok`  | Launch an ngrok tunnel to the Odoo container. |
+
+### Arguments Definition:
+
+| Argument    | Description                                                              |
+|-------------|--------------------------------------------------------------------------|
+| `-na`       | No anonymization (used with `import`).                                    |
+| `-s`        | Switch Odoo to the new DB (used with `import`, `copy`).                   |
+| `-y`        | Confirm actions without prompt (e.g., `drop`).                           |
+| `-c COMMAND`| Execute specific command inside `psql`.                                  |
+| `-d DBNAME` | Specify DB to target, defaults to `SELECTED_DB` if omitted.              |
+
 ## How to Run
 
-1. **Create a Docker Network** (only needed once):
+### 1. **Create the Docker Network** (only needed once):
 
-   ```bash
-   docker network create web
-   ```
+If you already have a `web` network, delete it:
+```bash
+docker network rm web
+```
+Then recreate it with proper IP range:
+```bash
+docker network create --subnet=192.168.2.0/24 --gateway=192.168.2.1 --ip-range=192.168.2.0/24 web
+```
 
-2. **Run the Database Docker Compose**:
+### 2. **Run the Docker Compose**:
 
-   - Execute the following command in the `db` folder:
+   - Execute the following command in the folder:
      ```bash
      docker compose up
      ```
-   - Alternatively, you can right-click on the `db/docker-compose.yml` file and choose "Compose Up" if you have installed the docker extension of your code editor.
+   - Alternatively, you can right-click on the `docker-compose.yml` file and choose "Compose Up" if you have installed the docker extension of your code editor.
    ![Capture d'écran docker-compose](https://i.postimg.cc/sXrRxG2J/image-2025-01-08-101256825.png)
 
-3. **Run the Other Docker Compose Files**:
+## Updating Modules, args, or changing db
 
-   - Navigate to the `odoo` and `utils` folders and execute their respective `docker-compose.yml` files the same way.
+```bash
+docker compose restart odoo
+```
 
-## Updating Modules
+or simply
 
-1. **If Changes Were Made to the ****************`.env`**************** File**:
-
-   - Stop the Odoo container:
-     ```bash
-     docker compose down
-     ```
-   - Restart the Odoo container:
-     ```bash
-     docker compose up
-     ```
-   - Alternatively, you can also compose up and compose down using the docker extension of your code editor.
-   ![Capture d'écran docker-compose](https://i.postimg.cc/sXrRxG2J/image-2025-01-08-101256825.png)
-
-2. **If No Changes Were Made to the ****************`.env`**************** File**:
-
-   - Simply restart the Odoo container:
-     ```bash
-     docker restart odoo
-     ```
-   - Or you can also restart the container quickly by accessing the docker tab of your code editor and right clicking the odoo container.
-   ![docker restart](https://i.postimg.cc/pXmvrHZy/image-2025-01-08-101748853.png)
+```bash
+reboot
+```
+in the utils shell at http://utils.docker.localhost
 
 ## Notes
 
-- **Separation of Docker Compose Files**:
+The utils shell contain most of the commands you will need, no need to compose down and compose up the container most of the time.
 
-  - The files are separated to allow the Odoo container to be restarted independently. This ensures minimal downtime by avoiding unnecessary restarts of the `db` and `utils` containers.
-
-- **Single Network Limitation**:
-
-  - Only one container of each type can run at a time on the same network. To allow multiple instances:
-    1. Create a new network:
-       ```bash
-       docker network create <new_network_name>
-       ```
-    2. Update all `docker-compose.yml` files to use the new network.
-    3. Assign new URLs for each container using `.docker.localhost`.
-
-## Managing Multiple Projects
-
-### Using Multiple Folders
-
-1. **Separate Project Folders**:
-
-   - Create a unique folder for each project.
-   - The `utils` folder can remain shared as it is only needed once.
-
-2. **Database Management**:
-
-   - Option 1: Copy the `db` folder for each project.
-   - Option 2: Use a single `db` folder shared across projects, and update the database name in each project's `.env` file.
-
-### Using Multiple Git Branches
-
-1. **Branch Setup**:
-
-   - Organize projects by creating separate branches.
-
-2. **Ignoring Folders in Git**:
-
-   - Use the provided `.gitignore` example to ignore specific folders in your Git project.
-
-3. **Custom Addons Folder**:
-
-   - Update the addons path in `.env` to point to a shared parent directory if needed.
-
-## Managing Different Odoo Versions
-
-- **Database Compatibility**:
-
-  - Different Odoo versions may require different PostgreSQL versions. Set up separate `db` folders for each version.
-
-- **Shared Utils**:
-
-  - The `utils` folder generally remains unchanged but may require updates for new features or compatibility adjustments.
+Edits in odoo args, change in db etc are automatically used directly with no need to compose down and up. So a simple 'reboot' in the utils can save you a lot of time.
 

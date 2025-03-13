@@ -12,6 +12,10 @@ RUN pip install qrcode --break-system-packages
 # Vérification de la configuration
 RUN test -f /etc/ssh/sshd_config || dpkg-reconfigure openssh-server
 
+# Copier les scripts dans le conteneur
+COPY data/scripts/entrypoint.sh /home/odoo/entrypoint.sh
+RUN chmod +x /home/odoo/entrypoint.sh
+
 # Ajouter un utilisateur pour SSH
 RUN usermod -s /bin/bash odoo && echo "odoo:odoo" | chpasswd && \
 mkdir -p /home/odoo && chown odoo:odoo /home/odoo
