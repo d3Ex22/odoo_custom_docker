@@ -7,7 +7,7 @@ USER root
 RUN apt-get update && apt-get install -y openssh-server && mkdir -p /var/run/sshd && \
     ssh-keygen -A
 
-RUN pip install qrcode --break-system-packages
+RUN python3 -m pip install --upgrade pip && pip3 install qrcode
 
 # Vérification de la configuration
 RUN test -f /etc/ssh/sshd_config || dpkg-reconfigure openssh-server
