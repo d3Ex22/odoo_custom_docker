@@ -13,7 +13,6 @@
 ZIP_DIR="/home/odoo/db_zip"
 TMP_DIR="/home/odoo/db_zip/tmp"
 ODOO_ENV_FILE="/home/odoo/.env"
-ODOO_CONF_FILE="/home/odoo/config/odoo.conf"
 FILESTORE_BASE="/home/odoo/data/odoo/filestore"
 
 NEW_DB_NAME="$1"
@@ -121,23 +120,28 @@ else
   echo "ℹ️ No filestore found in the archive. Skipping."
 fi
 
+# ✅ Switch to the new DB in .env if requested
 if $SWITCH; then
   echo "🔄 Switching Odoo to use database: $NEW_DB_NAME"
 
-  TMP_FILE="${ODOO_CONF_FILE}.tmp"
+  TMP_FILE="${ODOO_ENV_FILE}.tmp"
   > "$TMP_FILE"
 
+  # Recopie toutes les lignes sauf SELECTED_DB
   while IFS= read -r line || [ -n "$line" ]; do
-    if [[ "$line" != db_name=* ]]; then
+    if [[ "$line" != SELECTED_DB=* ]]; then
       echo "$line" >> "$TMP_FILE"
     fi
-  done < "$ODOO_CONF_FILE"
+  done < "$ODOO_ENV_FILE"
 
-  echo "db_name = $NEW_DB_NAME" >> "$TMP_FILE"
-  cat "$TMP_FILE" > "$ODOO_CONF_FILE"
+  # Ajoute la nouvelle ligne SELECTED_DB
+  echo "SELECTED_DB=$NEW_DB_NAME" >> "$TMP_FILE"
+
+  # Réécrit le fichier .env proprement
+  cat "$TMP_FILE" > "$ODOO_ENV_FILE"
   rm "$TMP_FILE"
 
-  echo "✅ $ODOO_CONF_FILE updated to db_name = $NEW_DB_NAME"
+  echo "✅ $ODOO_ENV_FILE updated to SELECTED_DB=$NEW_DB_NAME"
 
   echo "🚀 Restarting Odoo..."
   docker compose restart odoo
