@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
   db:
     container_name: db
-    image: postgres:17
+    image: postgres:15
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_PASSWORD=odoo

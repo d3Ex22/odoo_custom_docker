@@ -4,7 +4,7 @@ Odoo custom Docker setup with advanced database management tools.
 
 ## Version
 
-**18.0**
+**14.0**
 
 ## Features
 
