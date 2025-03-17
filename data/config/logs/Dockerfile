@@ -29,5 +29,4 @@ RUN echo "while true; do" >> /etc/bash.bashrc && \
     echo "    echo '      ----------------------------------------------------------------'" >> /etc/bash.bashrc && \
     echo "    echo ''" >> /etc/bash.bashrc && \
     echo "    docker attach odoo" >> /etc/bash.bashrc && \
-    echo "    sleep 5" >> /etc/bash.bashrc && \
     echo "done" >> /etc/bash.bashrc
