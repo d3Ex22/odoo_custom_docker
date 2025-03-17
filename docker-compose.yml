@@ -200,7 +200,6 @@ services:
     restart: unless-stopped
 networks:
   web:
-    external: true
     driver: bridge
     ipam:
       config:
