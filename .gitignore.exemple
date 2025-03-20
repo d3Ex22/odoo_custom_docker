@@ -1,4 +1,4 @@
 #ignore the db/odoo/utils folders and the README.md file
 
-data/odoo/*
-data/pgdata/*
+data/odoo/**
+data/pgdata/**
