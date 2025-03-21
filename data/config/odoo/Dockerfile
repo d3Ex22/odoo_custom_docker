@@ -1,4 +1,4 @@
-FROM odoo:17.0
+FROM odoo:16.0
 
 # Passer en tant que root pour les installations
 USER root
@@ -7,7 +7,7 @@ USER root
 RUN apt-get update && apt-get install -y openssh-server && mkdir -p /var/run/sshd && \
     ssh-keygen -A
 
-RUN pip install qrcode --break-system-packages
+RUN pip install qrcode
 
 # Vérification de la configuration
 RUN test -f /etc/ssh/sshd_config || dpkg-reconfigure openssh-server
