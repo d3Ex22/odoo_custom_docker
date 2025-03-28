@@ -61,6 +61,8 @@ RUN echo "alias reboot='/mnt/scripts/reboot.sh'" >> /etc/bash.bashrc
 
 # - grok
 RUN echo "alias grok='/mnt/scripts/grok.sh'" >> /etc/bash.bashrc
+# - pip
+RUN echo "alias pip='/mnt/scripts/pip.sh'" >> /etc/bash.bashrc
 
 # Loop for user screen
 RUN echo "clear" >> /etc/bash.bashrc && \
@@ -91,7 +93,9 @@ RUN echo "clear" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - reboot                                  \e[32m quick reboot, will restart the odoo container              \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo '  Tools: '" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - docker-shell                            \e[32m launch a bash shell in the odoo container                  \e[0m'" >> /etc/bash.bashrc && \
     echo "echo '\e[0m   - grok                                    \e[32m launch a ngrok tunnel to the odoo container                \e[0m'" >> /etc/bash.bashrc && \
+    echo "echo '\e[0m   - pip ARGS                                \e[32m launch a pip command in the odoo container                 \e[0m'" >> /etc/bash.bashrc && \
     echo "echo ''" >> /etc/bash.bashrc && \
     echo "echo ' Args definition: '" >> /etc/bash.bashrc && \
     echo "echo '\e[0m  -f            \e[32m force action                                                   \e[0m'" >> /etc/bash.bashrc && \

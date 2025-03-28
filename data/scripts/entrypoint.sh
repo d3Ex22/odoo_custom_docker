@@ -26,10 +26,14 @@ echo "✅ Extra Odoo Args: $ODOO_ARGS"
 echo "🚀 Starting SSH service..."
 service ssh start
 
+# Installation des dépendances supplémentaires du projet
+apt-get update
+apt-get install xmlsec1 build-essential python3-dev poppler-utils libpoppler-dev libpoppler-cpp-dev -y
+
 # ✅ Installation des requirements si présents
 if [ -f "/mnt/extra-addons/requirements.txt" ]; then
     echo "📦 Installing Python requirements..."
-    pip install -r /mnt/extra-addons/requirements.txt --ignore-installed
+    pip install -r /mnt/extra-addons/requirements.txt
 else
     echo "⚠️ No requirements.txt found in /mnt/extra-addons"
 fi
