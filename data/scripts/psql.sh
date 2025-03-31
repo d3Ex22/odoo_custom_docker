@@ -5,34 +5,40 @@
 # Usage:
 #   psql [-d DBNAME] [additional psql arguments]
 # Options:
-#   -d DBNAME : Database name (optional, default: "main")
+#   -d DBNAME : Database name (optional, fallback to SELECTED_DB in .env)
 #   Any other arguments will be passed directly to the psql command.
 # -----------------------------------------------------------------------------
 
-# Default database name
-DBNAME="main"
-
-# Array to store additional arguments passed to the script
+ENV_FILE="/home/odoo/.env"
+DBNAME=""
 ARGS=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -d)
-            # If -d is provided, use the next argument as database name
             DBNAME="$2"
-            shift 2  # Shift twice to skip both -d and DBNAME
+            shift 2
             ;;
         *)
-            # Collect any other arguments to pass them to psql
             ARGS+=("$1")
-            shift  # Move to next argument
+            shift
             ;;
     esac
 done
 
-# Execute psql inside the 'db' container, connecting to the specified database
-# -d "$DBNAME" specifies the database to connect to
-# -U odoo specifies the user (adjust if needed)
-# "${ARGS[@]}" passes any additional arguments given to this script to psql
+# If no DBNAME was passed, get it from .env
+if [ -z "$DBNAME" ]; then
+    if [ -f "$ENV_FILE" ]; then
+        DBNAME=$(grep '^SELECTED_DB=' "$ENV_FILE" | cut -d '=' -f2 | tr -d '[:space:]')
+    fi
+fi
+
+# If still not defined, show error
+if [ -z "$DBNAME" ]; then
+    echo "❌ No database name provided and no SELECTED_DB found in $ENV_FILE"
+    exit 1
+fi
+
+# Connect via docker exec
 docker exec -it db psql -d "$DBNAME" -U odoo "${ARGS[@]}"
