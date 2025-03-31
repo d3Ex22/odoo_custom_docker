@@ -46,74 +46,84 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ✅ Liste des fichiers valides (sql direct ou archives)
-ZIP_LIST=($(find "$ZIP_DIR" -maxdepth 1 -type f \( -iname "*.zip" -o -iname "*.7z" -o -iname "*.tar.gz" -o -iname "*.tgz" -o -iname "*.sql" \) ! -name "*out_*"))
-ZIP_COUNT=${#ZIP_LIST[@]}
-
-if [ "$ZIP_COUNT" -eq 0 ]; then
-  echo "❌ No valid file available for import in $ZIP_DIR."
+# ✅ Recherche des fichiers valides
+IMPORT_LIST=($(find "$ZIP_DIR" -maxdepth 1 -type f \( -iname "*.sql" -o -iname "*.dump" -o -iname "*.zip" -o -iname "*.7z" -o -iname "*.tar.gz" -o -iname "*.tgz" \) ! -name "*out_*"))
+if [ ${#IMPORT_LIST[@]} -eq 0 ]; then
+  echo "❌ No valid file found in $ZIP_DIR."
   exit 1
 fi
 
-# ✅ Sélection du fichier
+# ✅ Sélection
 SELECTED_FILE=""
-if [ "$ZIP_COUNT" -eq 1 ]; then
-  SELECTED_FILE="${ZIP_LIST[0]}"
+if [ ${#IMPORT_LIST[@]} -eq 1 ]; then
+  SELECTED_FILE="${IMPORT_LIST[0]}"
 else
-  echo "Multiple valid files found:"
-  for i in "${!ZIP_LIST[@]}"; do
-    echo "$((i+1)). $(basename "${ZIP_LIST[$i]}")"
+  echo "Multiple files found:"
+  for i in "${!IMPORT_LIST[@]}"; do
+    echo "$((i + 1)). $(basename "${IMPORT_LIST[$i]}")"
   done
-  read -p "Select a file to import [1-$ZIP_COUNT]: " SELECTION
-  if [[ "$SELECTION" =~ ^[0-9]+$ ]] && [ "$SELECTION" -ge 1 ] && [ "$SELECTION" -le "$ZIP_COUNT" ]; then
-    SELECTED_FILE="${ZIP_LIST[$((SELECTION-1))]}"
+  read -p "Select a file to import [1-${#IMPORT_LIST[@]}]: " CHOICE
+  if [[ "$CHOICE" =~ ^[0-9]+$ ]] && [ "$CHOICE" -ge 1 ] && [ "$CHOICE" -le ${#IMPORT_LIST[@]} ]; then
+    SELECTED_FILE="${IMPORT_LIST[$((CHOICE - 1))]}"
   else
     echo "❌ Invalid selection."
     exit 1
   fi
 fi
 
-echo "📦 Selected file: $SELECTED_FILE"
+echo "📦 Selected file: $(basename "$SELECTED_FILE")"
 
-# ✅ Cas fichier SQL direct
-if [[ "$SELECTED_FILE" =~ \.sql$ ]]; then
-  SQL_FILE="$SELECTED_FILE"
-  FILESTORE_FOUND=false
-else
-  # ✅ Cas archive compressée
-  rm -rf "$TMP_DIR"
-  mkdir -p "$TMP_DIR"
-  
-  EXT="${SELECTED_FILE##*.}"
-  echo "📂 Extracting $SELECTED_FILE..."
-  case "$EXT" in
-    "zip") unzip -o "$SELECTED_FILE" -d "$TMP_DIR" ;;
-    "7z")  7z x "$SELECTED_FILE" -o"$TMP_DIR" ;;
-    "gz"|"tgz") tar -xzf "$SELECTED_FILE" -C "$TMP_DIR" ;;
-    *) echo "❌ Unsupported archive format: $EXT"; exit 1 ;;
-  esac
+# ✅ Déterminer si c’est un fichier brut ou une archive
+IS_ARCHIVE=false
+EXT_LOWER=$(echo "$SELECTED_FILE" | tr '[:upper:]' '[:lower:]')
 
-  # ✅ Recherche du fichier SQL
-  SQL_FILE=$(find "$TMP_DIR" -type f -iname "*.sql" | head -n 1)
-  if [ -z "$SQL_FILE" ]; then
-    echo "❌ No SQL file found inside the archive."
-    exit 1
-  fi
-  echo "🗄️ Found SQL file: $(basename "$SQL_FILE")"
-
-  # ✅ Vérifie si filestore présent
-  FILESTORE_FOUND=$(find "$TMP_DIR" -type d -name "filestore" | head -n 1)
+if [[ "$EXT_LOWER" =~ \.(zip|7z|tar\.gz|tgz)$ ]]; then
+  IS_ARCHIVE=true
 fi
 
-# ✅ Création et import de la DB
+# ✅ Extraction si archive
+if $IS_ARCHIVE; then
+  rm -rf "$TMP_DIR"
+  mkdir -p "$TMP_DIR"
+  echo "📂 Extracting archive..."
+  case "$EXT_LOWER" in
+    *.zip) unzip -o "$SELECTED_FILE" -d "$TMP_DIR" ;;
+    *.7z)  7z x "$SELECTED_FILE" -o"$TMP_DIR" ;;
+    *.tar.gz|*.tgz) tar -xzf "$SELECTED_FILE" -C "$TMP_DIR" ;;
+    *) echo "❌ Unsupported archive format."; exit 1 ;;
+  esac
+
+  SQL_FILE=$(find "$TMP_DIR" -type f \( -iname "*.sql" -o -iname "*.dump" \) | head -n 1)
+  if [ -z "$SQL_FILE" ]; then
+    echo "❌ No .sql or .dump file found inside archive."
+    exit 1
+  fi
+
+  FILESTORE_FOUND=$(find "$TMP_DIR" -type d -name "filestore" | head -n 1)
+else
+  SQL_FILE="$SELECTED_FILE"
+  FILESTORE_FOUND=""
+fi
+
+# ✅ Création de la base
 echo "🚧 Creating database: $NEW_DB_NAME..."
 docker exec db psql -U odoo -d postgres -c "DROP DATABASE IF EXISTS \"$NEW_DB_NAME\";"
 docker exec db psql -U odoo -d postgres -c "CREATE DATABASE \"$NEW_DB_NAME\" OWNER odoo;"
 
+# ✅ Import selon extension
 echo "📥 Importing dump into $NEW_DB_NAME..."
-docker exec -i db psql -U odoo -d "$NEW_DB_NAME" < "$SQL_FILE"
+EXT_SQL=$(echo "$SQL_FILE" | tr '[:upper:]' '[:lower:]')
 
-# ✅ Anonymisation si nécessaire
+if [[ "$EXT_SQL" =~ \.dump$ ]]; then
+  docker exec -i db pg_restore -U odoo -d "$NEW_DB_NAME" --no-owner < "$SQL_FILE"
+elif [[ "$EXT_SQL" =~ \.sql$ ]]; then
+  docker exec -i db psql -U odoo -d "$NEW_DB_NAME" < "$SQL_FILE"
+else
+  echo "❌ Unknown file format for import: $SQL_FILE"
+  exit 1
+fi
+
+# ✅ Anonymisation
 if [[ "$NO_ANON" = false && "$SELECTED_FILE" != *"anon_"* ]]; then
   echo "🧹 Anonymizing data in $NEW_DB_NAME..."
   docker exec db psql -U odoo -d "$NEW_DB_NAME" -c "
@@ -131,50 +141,43 @@ fi
 
 # ✅ Gestion du filestore
 if [ -n "$FILESTORE_FOUND" ]; then
-  echo "📂 Filestore found. Copying content to /filestore/$NEW_DB_NAME..."
+  echo "📂 Copying filestore to $FILESTORE_BASE/$NEW_DB_NAME..."
   mkdir -p "$FILESTORE_BASE/$NEW_DB_NAME"
   cp -r "$FILESTORE_FOUND/"* "$FILESTORE_BASE/$NEW_DB_NAME/"
   echo "✅ Filestore copied."
 else
-  echo "ℹ️ No filestore found. Skipping."
+  echo "ℹ️ No filestore found."
 fi
 
-# ✅ Mise à jour du .env si besoin
+# ✅ Mise à jour .env
 if $SWITCH; then
   echo "🔄 Switching Odoo to use database: $NEW_DB_NAME"
-
   TMP_FILE="${ODOO_ENV_FILE}.tmp"
   > "$TMP_FILE"
 
   while IFS= read -r line || [ -n "$line" ]; do
-    if [[ "$line" != SELECTED_DB=* ]]; then
-      echo "$line" >> "$TMP_FILE"
-    fi
+    [[ "$line" != SELECTED_DB=* ]] && echo "$line" >> "$TMP_FILE"
   done < "$ODOO_ENV_FILE"
 
   echo "SELECTED_DB=$NEW_DB_NAME" >> "$TMP_FILE"
-
   cat "$TMP_FILE" > "$ODOO_ENV_FILE"
   rm "$TMP_FILE"
 
-  echo "✅ $ODOO_ENV_FILE updated to SELECTED_DB=$NEW_DB_NAME"
-
+  echo "✅ Updated .env with SELECTED_DB=$NEW_DB_NAME"
   echo "🚀 Restarting Odoo..."
   docker compose restart odoo
 
   if [ $? -eq 0 ]; then
-    echo "✅ Odoo restarted successfully with database '$NEW_DB_NAME'."
+    echo "✅ Odoo restarted with new DB."
   else
     echo "❌ Failed to restart Odoo."
     exit 1
   fi
 else
-  echo "ℹ️ Database '$NEW_DB_NAME' imported but not set as active (use -s to switch)."
+  echo "ℹ️ DB imported but not activated (use -s to switch)."
 fi
 
-# ✅ Nettoyage si archive
-if [[ ! "$SELECTED_FILE" =~ \.sql$ ]]; then
-  rm -rf "$TMP_DIR"
-fi
+# ✅ Cleanup
+$IS_ARCHIVE && rm -rf "$TMP_DIR"
 
-echo "✅ Import completed successfully for database '$NEW_DB_NAME'."
+echo "✅ Import completed for database '$NEW_DB_NAME'."
