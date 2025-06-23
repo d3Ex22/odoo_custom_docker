@@ -100,3 +100,41 @@ The utils shell contain most of the commands you will need, no need to compose d
 
 Edits in odoo args, change in db etc are automatically used directly with no need to compose down and up. So a simple 'reboot' in the utils can save you a lot of time.
 
+## Troubleshooting
+
+### Docker permission denied
+
+```bash
+permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
+```
+
+Having difficulties watching the logs ? Got permission denied to docker socket ?
+Search no more, here is the command for you:
+
+```bash
+sudo usermod -aG docker $USER
+sudo newgrp docker
+```
+
+Or even more powerful (but more risky security wise, dont do this on production servers, only for dev environments):
+
+```bash
+sudo chmod 666 /var/run/docker.sock
+source ~/.bashrc
+```
+
+### Commands/Script files permission denied
+
+```bash
+-bash: /mnt/scripts/list.sh: Permission denied
+```
+
+Go to the scripts folder in data/scripts and open a terminal there.
+Then in the terminal run:
+
+```bash
+for file in ./*.sh; do chmod +x $file; done
+```
+
+
+

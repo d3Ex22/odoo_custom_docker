@@ -7,7 +7,8 @@ USER root
 RUN apt-get update && apt-get install -y openssh-server && mkdir -p /var/run/sshd && \
     ssh-keygen -A
 
-RUN pip install qrcode --break-system-packages
+RUN pip install qrcode 
+#RUN pip install qrcode --break-system-packages
 
 # Vérification de la configuration
 RUN test -f /etc/ssh/sshd_config || dpkg-reconfigure openssh-server
@@ -41,3 +42,6 @@ RUN echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
 
 # Exposer le port SSH
 EXPOSE 22
+
+# Install missing packages for requirements.txt
+RUN apt install -y git gcc libcups2-dev python3-dev build-essential

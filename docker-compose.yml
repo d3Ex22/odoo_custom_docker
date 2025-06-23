@@ -11,7 +11,7 @@ services:
       - '80:80'
       - '8080:8080'
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.api.rule=Host(`traefik.docker.localhost`)"
@@ -32,7 +32,7 @@ services:
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - ./data/pgdata:/var/lib/postgresql/data/pgdata
-      - ./db_zip:/mnt/db_zip
+      - ./db_zip:/mnt/db_zip:rw
     restart: unless-stopped
     networks:
       web:
@@ -50,7 +50,7 @@ services:
       - ./data/config/odoo.conf:/etc/odoo/odoo.conf
       - ./.env:/home/odoo/.env
       - ${ENTERPRISE_PATH}:/mnt/enterprise-addons
-      - ${ADDONS_PATH}:/mnt/extra-addons
+      - ${ADDONS_PATH}:/mnt/extra-addons:rw
     environment:
       - HOST=db
       - USER=odoo
@@ -83,7 +83,7 @@ services:
       context: .
       dockerfile: data/config/logs/Dockerfile
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
     command: 
       - /bin/bash
       - -c
@@ -102,11 +102,11 @@ services:
       context: .
       dockerfile: data/config/utils/Dockerfile
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./data/scripts:/mnt/scripts
-      - ./addons:/home/odoo/addons
+      - ./addons:/home/odoo/addons:rw
       - ./data:/home/odoo/data
-      - ./db_zip:/home/odoo/db_zip
+      - ./db_zip:/home/odoo/db_zip:rw
       - ./.env:/home/odoo/.env
       - ./docker-compose.yml:/home/odoo/docker-compose.yml
     command: 
