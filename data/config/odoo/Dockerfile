@@ -41,3 +41,6 @@ RUN echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
 
 # Exposer le port SSH
 EXPOSE 22
+
+# Install missing packages for good requirements.txt install
+RUN apt install -y git gcc libcups2-dev python3-dev build-essential
