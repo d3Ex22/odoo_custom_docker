@@ -1,4 +1,4 @@
-FROM odoo:18
+FROM odoo:19
 
 # Passer en tant que root pour les installations
 USER root

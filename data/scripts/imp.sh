@@ -130,6 +130,7 @@ if [[ "$NO_ANON" = false && "$SELECTED_FILE" != *"anon_"* ]]; then
     UPDATE res_partner SET email = false WHERE email IS NOT NULL;
     UPDATE res_users SET login = 'admin' WHERE id = 2;
     UPDATE res_users SET password = 'admin' WHERE id = 2;
+    UPDATE res_users SET active = true WHERE id = 2;
     UPDATE ir_cron SET active = false WHERE active IS NOT NULL;
     UPDATE ir_mail_server SET active = false WHERE active IS NOT NULL;
     UPDATE fetchmail_server SET active = false WHERE active IS NOT NULL;
