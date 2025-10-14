@@ -29,7 +29,7 @@ service ssh start
 # ✅ Installation des requirements si présents
 if [ -f "/mnt/extra-addons/requirements.txt" ]; then
     echo "📦 Installing Python requirements..."
-    pip install -r /mnt/extra-addons/requirements.txt --break-system-packages --ignore-installed
+    pip install -r /mnt/extra-addons/requirements.txt --ignore-installed
 else
     echo "⚠️ No requirements.txt found in /mnt/extra-addons"
 fi

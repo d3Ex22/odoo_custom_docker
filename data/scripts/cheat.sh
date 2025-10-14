@@ -34,7 +34,7 @@ WITH update_ir_config AS (
 update_ir_cron AS (
     UPDATE public.ir_cron
     SET active = false
-    WHERE cron_name = 'Publisher: Update Notification'
+    WHERE cron_name->>'en_US' = 'Publisher: Update Notification'
 )
 SELECT 1;
 "
