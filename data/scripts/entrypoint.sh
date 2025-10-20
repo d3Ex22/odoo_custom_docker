@@ -1,5 +1,18 @@
 #!/bin/bash
 
+# Fix permissions on mounted volumes (must be run as root)
+if [ "$(id -u)" = "0" ]; then
+    # Skip on Windows (Git Bash, MSYS, MinGW, Cygwin)
+    case "$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')" in
+        msys*|cygwin*|mingw*|nt|win*)
+            ;;
+        *)
+            echo "🔧 Fixing permissions on mounted volumes..."
+            chmod -R 777 /var/lib/odoo 2>/dev/null || true
+            ;;
+    esac
+fi
+
 ENV_FILE="/home/odoo/.env"
 
 # ✅ Lecture des variables depuis .env
