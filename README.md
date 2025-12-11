@@ -125,14 +125,22 @@ addons/
 
 ### Troubleshooting
 
-**Permission denied on docker.sock**
+**Permission denied on docker.sock (Linux/macOS)**
+
+Temporary fix:
 ```bash
 sudo chmod 666 /var/run/docker.sock
 ```
 
-**Database connection failed**
+Permanent fix - create systemd override:
 ```bash
-docker compose logs db
+sudo mkdir -p /etc/systemd/system/docker.socket.d
+sudo tee /etc/systemd/system/docker.socket.d/override.conf << EOF
+[Socket]
+SocketMode=0666
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker.socket
 ```
 
 ---
@@ -258,12 +266,20 @@ addons/
 
 ### Dépannage
 
-**Permission denied sur docker.sock**
+**Permission denied sur docker.sock (Linux/macOS)**
+
+Solution temporaire:
 ```bash
 sudo chmod 666 /var/run/docker.sock
 ```
 
-**Connexion base de données échouée**
+Solution permanente - créer un override systemd:
 ```bash
-docker compose logs db
+sudo mkdir -p /etc/systemd/system/docker.socket.d
+sudo tee /etc/systemd/system/docker.socket.d/override.conf << EOF
+[Socket]
+SocketMode=0666
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker.socket
 ```
