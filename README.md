@@ -60,6 +60,7 @@ docker compose up -d
 | `requirements` | | Install addon dependencies |
 | `status` | | Container status |
 | `grok` | | Ngrok tunnel |
+| `upgrade-code` | | Migrate code (Odoo 19+ only) |
 
 ### Configuration
 
@@ -201,6 +202,7 @@ docker compose up -d
 | `requirements` | | Installe les dépendances addons |
 | `status` | | Statut des conteneurs |
 | `grok` | | Tunnel Ngrok |
+| `upgrade-code` | | Migration code (Odoo 19+ uniquement) |
 
 ### Configuration
 

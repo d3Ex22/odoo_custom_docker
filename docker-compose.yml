@@ -63,13 +63,15 @@ services:
         condition: service_healthy
     volumes:
       - ./data/odoo.conf:/etc/odoo/odoo.conf
-      - ${ADDONS_PATH:-./addons}:/mnt/extra-addons:ro
+      - ${ADDONS_PATH:-./addons}:/mnt/extra-addons:rw
       - ${ENTERPRISE_PATH:-./data/.enterprise_placeholder}:/mnt/enterprise-addons:ro
       - ./.env:/home/odoo/.env:ro
       - ./data/volumes/odoo/filestore:/var/lib/odoo/filestore
       - ./data/volumes/odoo/sessions:/var/lib/odoo/sessions
       - ./data/volumes/odoo/logs:/var/log/odoo
       - ./data/volumes/odoo/cache:/var/lib/odoo/cache
+      - ./data/migration_scripts:/opt/migration_scripts:ro
+      - ./data/.pre-commit-config.yaml:/opt/.pre-commit-config.yaml:ro
     environment:
       - HOST=db
       - PORT=5432

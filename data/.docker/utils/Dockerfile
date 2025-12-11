@@ -60,7 +60,6 @@ RUN echo '# Odoo Commands' >> /home/odoo/.bashrc && \
     echo 'alias start="/home/odoo/docker_dev/data/.docker/utils/commands/start.sh"' >> /home/odoo/.bashrc && \
     echo 'alias s="start"' >> /home/odoo/.bashrc && \
     echo 'alias stop="/home/odoo/docker_dev/data/.docker/utils/commands/stop.sh"' >> /home/odoo/.bashrc && \
-    echo 'alias terminal="/home/odoo/docker_dev/data/.docker/utils/commands/terminal.sh"' >> /home/odoo/.bashrc && \
     echo 'alias update="/home/odoo/docker_dev/data/.docker/utils/commands/update.sh"' >> /home/odoo/.bashrc && \
     echo 'alias u="update"' >> /home/odoo/.bashrc && \
     echo '# Database Commands' >> /home/odoo/.bashrc && \
@@ -76,7 +75,10 @@ RUN echo '# Odoo Commands' >> /home/odoo/.bashrc && \
     echo 'alias grok="/home/odoo/docker_dev/data/.docker/utils/commands/grok.sh"' >> /home/odoo/.bashrc && \
     echo 'alias help="source /home/odoo/.welcome"' >> /home/odoo/.bashrc && \
     echo 'alias pip="/home/odoo/docker_dev/data/.docker/utils/commands/pip.sh"' >> /home/odoo/.bashrc && \
-    echo 'alias requirements="/home/odoo/docker_dev/data/.docker/utils/commands/requirements.sh"' >> /home/odoo/.bashrc
+    echo 'alias pre-commit="/home/odoo/docker_dev/data/.docker/utils/commands/pre-commit.sh"' >> /home/odoo/.bashrc && \
+    echo 'alias pc="pre-commit"' >> /home/odoo/.bashrc && \
+    echo 'alias requirements="/home/odoo/docker_dev/data/.docker/utils/commands/requirements.sh"' >> /home/odoo/.bashrc && \
+    echo 'alias upgrade-code="/home/odoo/docker_dev/data/.docker/utils/commands/upgrade-code.sh"' >> /home/odoo/.bashrc
 
 # Auto-completion
 RUN echo '' >> /home/odoo/.bashrc && \
