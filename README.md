@@ -1,139 +1,269 @@
-# odoo\_custom\_docker
+# Odoo Development Environment
 
-Odoo custom Docker setup with advanced database management tools.
+🇬🇧 [English](#english) | 🇫🇷 [Français](#français)
 
-## Version
+---
 
-**18.0**
+<a name="english"></a>
+## 🇬🇧 English
 
-## Features
+Fast, flexible Docker environment for Odoo development.
 
-- **Access Odoo Instance**: `http://odoo.docker.localhost`
-- **Access Logs and Debugging**: `http://logs.docker.localhost`
-- **Access Tools and Commands**: `http://utils.docker.localhost`
-- **Access Database Shell**: `http://shell.docker.localhost`
-- **Customizable Environment**:
-  - Edit Odoo arguments and addons paths in the `.env` file. Theses are working directly with no need to compose down and up the whole container, a simple and quick 'reboot' in utils is all you need.
-  - Set the currently active database using `SELECTED_DB` in `.env` or with proper command in utils.
-  - Leave the `enterprise` pointing to an empty directory to enable community edition.
-- **Automatic Version Updates**:
-  - Odoo version will update automatically when a new Dockerfile is released for the specified version.
+### Features
 
-## Utilities & Command Line Tools
+- **Fast restarts**: ~2s with tmux (vs ~30s with container restart)
+- **Version switching**: Change Odoo/Python/PostgreSQL version in `.env`
+- **Smart caching**: Skip pip install if requirements unchanged
+- **Web terminal**: Access via browser
+- **Quick commands**: `r`, `u`, `s`, `db` aliases
+- **Auto addon discovery**: Scans subfolders for modules
 
-All utilities are directly available in the **utils container shell** (access via `utils.docker.localhost`):
+### Quick Start
 
-### Database & Odoo commands:
-
-| Command                                            | Description                                                           |
-|----------------------------------------------------|-----------------------------------------------------------------------|
-| `anon`                                             | Take non-anonymized DB from `db_zip`, anonymize it, and export it.     |
-| `cheat`                                            | Cheat database expiration date.                                       |
-| `copy NEW_DBNAME [-d SOURCE_DBNAME, -s]`            | Duplicate the current or selected database.                           |
-| `drop DBNAME [-y]`                                 | Drop a database (with confirmation).                                  |
-| `export [-d DBNAME]`                               | Export database to `db_zip` as zip/sql.                               |
-| `import DBNAME [-na, -s]`                          | Import DB from `db_zip`, anonymize it unless already or -na given.    |
-| `list`                                             | List available databases.                                             |
-| `psql [-d DBNAME, -c COMMAND]`                     | Open psql shell or execute command on selected DB.                    |
-| `switch DBNAME [-y]`                               | Switch Odoo to another DB, can create a new one if missing.            |
-
-### Odoo specific:
-
-| Command  | Description                                |
-|----------|--------------------------------------------|
-| `reboot` | Quick reboot: restart only the Odoo container. |
-
-### Tools:
-
-| Command | Description                              |
-|---------|------------------------------------------|
-| `grok`  | Launch an ngrok tunnel to the Odoo container. |
-
-### Arguments Definition:
-
-| Argument    | Description                                                              |
-|-------------|--------------------------------------------------------------------------|
-| `-na`       | No anonymization (used with `import`).                                    |
-| `-s`        | Switch Odoo to the new DB (used with `import`, `copy`).                   |
-| `-y`        | Confirm actions without prompt (e.g., `drop`).                           |
-| `-c COMMAND`| Execute specific command inside `psql`.                                  |
-| `-d DBNAME` | Specify DB to target, defaults to `SELECTED_DB` if omitted.              |
-
-## How to Run
-
-### 1. **Create the Docker Network** (only needed once):
-
-If you already have a `web` network, delete it:
-```bash
-docker network rm web
-```
-Then recreate it with proper IP range:
-```bash
-docker network create --subnet=192.168.2.0/24 --gateway=192.168.2.1 --ip-range=192.168.2.0/24 web
-```
-
-### 2. **Run the Docker Compose**:
-
-   - Execute the following command in the folder:
-     ```bash
-     docker compose up
-     ```
-   - Alternatively, you can right-click on the `docker-compose.yml` file and choose "Compose Up" if you have installed the docker extension of your code editor.
-   ![Capture d'écran docker-compose](https://i.postimg.cc/sXrRxG2J/image-2025-01-08-101256825.png)
-
-## Updating Modules, args, or changing db
+#### 1. Configure `.env`
 
 ```bash
-docker compose restart odoo
+ODOO_VERSION=19.0
+PYTHON_VERSION=3.12
+POSTGRES_VERSION=17
+ADDONS_PATH=./addons
+ENTERPRISE_PATH=../enterprise
 ```
 
-or simply
+#### 2. Start
 
 ```bash
-reboot
+docker compose up -d
 ```
-in the utils shell at http://utils.docker.localhost
 
-## Notes
+#### 3. Access
 
-The utils shell contain most of the commands you will need, no need to compose down and compose up the container most of the time.
+| Service | URL |
+|---------|-----|
+| Odoo    | http://odoo.docker.localhost |
+| Logs    | http://logs.docker.localhost |
+| Utils   | http://utils.docker.localhost |
 
-Edits in odoo args, change in db etc are automatically used directly with no need to compose down and up. So a simple 'reboot' in the utils can save you a lot of time.
+### Commands
 
-## Troubleshooting
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `reboot` | `r` | Restart Odoo (~2s) |
+| `update [module]` | `u` | Update modules + restart |
+| `start` | `s` | Start Odoo process |
+| `stop` | | Stop Odoo process |
+| `shell [db]` | | Odoo shell (new pane) |
+| `database [cmd]` | `db` | Database management |
+| `set VAR [value]` | | Configure .env settings |
+| `rebuild` | | Rebuild containers |
+| `migrate DB VER` | | Migrate database |
+| `requirements` | | Install addon dependencies |
+| `status` | | Container status |
+| `grok` | | Ngrok tunnel |
 
-### Docker permission denied
+### Configuration
+
+#### .env Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ODOO_VERSION` | `19.0` | 14.0, 15.0, 16.0, 17.0, 18.0, 19.0 |
+| `ODOO_BUILD` | `latest` | Build date (YYYYMMDD) or `latest` |
+| `PYTHON_VERSION` | `3.12` | Must be compatible with Odoo version |
+| `POSTGRES_VERSION` | `17` | Must be compatible with Odoo version |
+| `ADDONS_PATH` | `./addons` | Path to custom addons |
+| `ENTERPRISE_PATH` | | Path to enterprise addons (empty = disabled) |
+| `ODOO_PATH` | | Path to Odoo source (for module discovery) |
+| `SCAN_SUBFOLDERS` | `true` | Scan nested folders for addons |
+| `SELECTED_DB` | `main` | Active database |
+| `ODOO_UPDATE` | | Modules to update on restart |
+| `ODOO_ARGS` | | Extra Odoo arguments |
+
+#### Version Compatibility
+
+| Odoo | Python | PostgreSQL |
+|------|--------|------------|
+| 19.0 | 3.12, 3.11 | 17, 16, 15 |
+| 18.0 | 3.12, 3.11, 3.10 | 17, 16, 15, 14 |
+| 17.0 | 3.11, 3.10 | 16, 15, 14, 13 |
+| 16.0 | 3.10, 3.9, 3.8 | 15, 14, 13, 12 |
+| 15.0 | 3.10, 3.9, 3.8 | 14, 13, 12 |
+| 14.0 | 3.8, 3.7, 3.6 | 13, 12, 11 |
+
+### Path Configuration
+
+Paths are relative to `docker-compose.yml`:
+
+```
+project/
+├── docker-compose.yml
+├── addons/
+│   └── my_module/
+└── ../enterprise/
+```
 
 ```bash
-permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
+ADDONS_PATH=./addons           # Same directory
+ENTERPRISE_PATH=../enterprise  # Parent directory
 ```
 
-Having difficulties watching the logs ? Got permission denied to docker socket ?
-Search no more, here is the command for you:
+With `SCAN_SUBFOLDERS=true`, nested structures are auto-discovered:
 
-```bash
-sudo usermod -aG docker $USER
-sudo newgrp docker
+```
+addons/
+├── custom-addons/
+│   └── module1/
+└── extra-addons/
+    └── module2/
 ```
 
-Or even more powerful (but more risky security wise, dont do this on production servers, only for dev environments):
+### Changing Odoo Version
 
+1. Edit `.env`: `ODOO_VERSION=18.0`
+2. Adjust `PYTHON_VERSION` and `POSTGRES_VERSION` if needed
+3. Run: `rebuild`
+
+### Troubleshooting
+
+**Permission denied on docker.sock**
 ```bash
 sudo chmod 666 /var/run/docker.sock
-source ~/.bashrc
 ```
 
-### Commands/Script files permission denied
+**Database connection failed**
+```bash
+docker compose logs db
+```
+
+---
+
+<a name="français"></a>
+## 🇫🇷 Français
+
+Environnement Docker rapide et flexible pour le développement Odoo.
+
+### Fonctionnalités
+
+- **Redémarrages rapides**: ~2s avec tmux (vs ~30s avec restart conteneur)
+- **Changement de version**: Modifiez Odoo/Python/PostgreSQL dans `.env`
+- **Cache intelligent**: Skip pip install si requirements inchangés
+- **Terminal web**: Accès via navigateur
+- **Commandes rapides**: Alias `r`, `u`, `s`, `db`
+- **Découverte auto des addons**: Scan des sous-dossiers
+
+### Démarrage Rapide
+
+#### 1. Configurer `.env`
 
 ```bash
--bash: /mnt/scripts/list.sh: Permission denied
+ODOO_VERSION=19.0
+PYTHON_VERSION=3.12
+POSTGRES_VERSION=17
+ADDONS_PATH=./addons
+ENTERPRISE_PATH=../enterprise
 ```
 
-Go to the scripts folder in data/scripts and open a terminal there.
-Then in the terminal run:
+#### 2. Démarrer
 
 ```bash
-for file in ./*.sh; do chmod +x $file; done
+docker compose up -d
 ```
 
+#### 3. Accès
 
+| Service | URL |
+|---------|-----|
+| Odoo    | http://odoo.docker.localhost |
+| Logs    | http://logs.docker.localhost |
+| Utils   | http://utils.docker.localhost |
+
+### Commandes
+
+| Commande | Alias | Description |
+|----------|-------|-------------|
+| `reboot` | `r` | Redémarre Odoo (~2s) |
+| `update [module]` | `u` | Met à jour les modules + restart |
+| `start` | `s` | Démarre le processus Odoo |
+| `stop` | | Arrête le processus Odoo |
+| `shell [db]` | | Shell Odoo (nouveau pane) |
+| `database [cmd]` | `db` | Gestion base de données |
+| `set VAR [valeur]` | | Configure les paramètres .env |
+| `rebuild` | | Reconstruit les conteneurs |
+| `migrate DB VER` | | Migre une base de données |
+| `requirements` | | Installe les dépendances addons |
+| `status` | | Statut des conteneurs |
+| `grok` | | Tunnel Ngrok |
+
+### Configuration
+
+#### Variables .env
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `ODOO_VERSION` | `19.0` | 14.0, 15.0, 16.0, 17.0, 18.0, 19.0 |
+| `ODOO_BUILD` | `latest` | Date du build (YYYYMMDD) ou `latest` |
+| `PYTHON_VERSION` | `3.12` | Doit être compatible avec la version Odoo |
+| `POSTGRES_VERSION` | `17` | Doit être compatible avec la version Odoo |
+| `ADDONS_PATH` | `./addons` | Chemin vers les addons custom |
+| `ENTERPRISE_PATH` | | Chemin vers enterprise (vide = désactivé) |
+| `ODOO_PATH` | | Chemin vers sources Odoo (découverte modules) |
+| `SCAN_SUBFOLDERS` | `true` | Scanner les sous-dossiers pour les addons |
+| `SELECTED_DB` | `main` | Base de données active |
+| `ODOO_UPDATE` | | Modules à mettre à jour au restart |
+| `ODOO_ARGS` | | Arguments Odoo supplémentaires |
+
+#### Compatibilité des Versions
+
+| Odoo | Python | PostgreSQL |
+|------|--------|------------|
+| 19.0 | 3.12, 3.11 | 17, 16, 15 |
+| 18.0 | 3.12, 3.11, 3.10 | 17, 16, 15, 14 |
+| 17.0 | 3.11, 3.10 | 16, 15, 14, 13 |
+| 16.0 | 3.10, 3.9, 3.8 | 15, 14, 13, 12 |
+| 15.0 | 3.10, 3.9, 3.8 | 14, 13, 12 |
+| 14.0 | 3.8, 3.7, 3.6 | 13, 12, 11 |
+
+### Configuration des Chemins
+
+Les chemins sont relatifs à `docker-compose.yml`:
+
+```
+projet/
+├── docker-compose.yml
+├── addons/
+│   └── mon_module/
+└── ../enterprise/
+```
+
+```bash
+ADDONS_PATH=./addons           # Même répertoire
+ENTERPRISE_PATH=../enterprise  # Répertoire parent
+```
+
+Avec `SCAN_SUBFOLDERS=true`, les structures imbriquées sont auto-découvertes:
+
+```
+addons/
+├── custom-addons/
+│   └── module1/
+└── extra-addons/
+    └── module2/
+```
+
+### Changer de Version Odoo
+
+1. Modifier `.env`: `ODOO_VERSION=18.0`
+2. Ajuster `PYTHON_VERSION` et `POSTGRES_VERSION` si nécessaire
+3. Exécuter: `rebuild`
+
+### Dépannage
+
+**Permission denied sur docker.sock**
+```bash
+sudo chmod 666 /var/run/docker.sock
+```
+
+**Connexion base de données échouée**
+```bash
+docker compose logs db
+```
