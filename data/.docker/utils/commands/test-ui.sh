@@ -93,11 +93,12 @@ echo ""
 gum style --border rounded --width 50 --foreground "$CYBER_CYAN" --border-foreground "$CYBER_BLUE" "Quick Messages (ui.sh)"
 echo ""
 
-ui_success "Success message"
-ui_error "Error message"
-ui_warn "Warning message"
-ui_info "Info message"
 ui_debug "Debug message"
+ui_info "Info message"
+ui_success "Success message"
+ui_warn "Warning message"
+ui_error "Error message"
+ui_fatal "Fatal message"
 
 # ============================================================================
 # GUM STYLE

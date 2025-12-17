@@ -57,23 +57,44 @@ ui_quarter_right() {
 # QUICK MESSAGES - Styled output shortcuts
 # ============================================================================
 
-ui_success() { gum style --foreground "${COLOR_SUCCESS}" "✓ $*"; }
-ui_error()   { gum style --foreground "${COLOR_ERROR}" "✗ $*"; }
-ui_warn()    { gum style --foreground "${COLOR_WARNING}" "⚠ $*"; }
-ui_info()    { gum style --foreground "${COLOR_INFO}" "● $*"; }
-ui_debug()   { gum style --foreground "${COLOR_DEBUG}" "○ $*"; }
+ui_debug()   { gum style --bold --foreground "${COLOR_DEBUG}" "○ $*"; }
+ui_info()    { gum style --bold --foreground "${COLOR_INFO}" "● $*"; }
+ui_success() { gum style --bold --foreground "${COLOR_SUCCESS}" "✓ $*"; }
+ui_warn()    { gum style --bold --foreground "${COLOR_WARNING}" "⚠ $*"; }
+ui_error()   { gum style --bold --foreground "${COLOR_ERROR}" "✗ $*"; }
+ui_fatal()   { gum style --bold --background "${COLOR_ERROR}" --foreground "${CLASSIC_BLACK}" "✗✗ $*"; }
 
 # ============================================================================
 # STYLED LOG - gum log doesn't support per-level colors, use gum style
 # ============================================================================
 
-ui_log_debug() { gum style --foreground "${COLOR_DEBUG}" "[DEBUG] $*"; }
-ui_log_info()  { gum style --foreground "${COLOR_INFO}" "[INFO]  $*"; }
-ui_log_ok()    { gum style --foreground "${COLOR_SUCCESS}" "[OK]    $*"; }
-ui_log_warn()  { gum style --foreground "${COLOR_WARNING}" "[WARN]  $*"; }
-ui_log_error() { gum style --foreground "${COLOR_ERROR}" "[ERROR] $*"; }
+ui_log_debug() { 
+    local tag=$(gum style --bold --foreground "${COLOR_DEBUG}" "[DEBUG]")
+    local msg=$(gum style --foreground "${COLOR_DEBUG}" " $*")
+    gum join "$tag" "$msg"
+}
+ui_log_info()  { 
+    local tag=$(gum style --bold --foreground "${COLOR_INFO}" "[INFO]")
+    local msg=$(gum style --foreground "${COLOR_INFO}" " $*")
+    gum join "$tag" "$msg"
+}
+ui_log_ok()    { 
+    local tag=$(gum style --bold --foreground "${COLOR_SUCCESS}" "[OK]")
+    local msg=$(gum style --foreground "${COLOR_SUCCESS}" " $*")
+    gum join "$tag" "$msg"
+}
+ui_log_warn()  { 
+    local tag=$(gum style --bold --foreground "${COLOR_WARNING}" "[WARN]")
+    local msg=$(gum style --foreground "${COLOR_WARNING}" " $*")
+    gum join "$tag" "$msg"
+}
+ui_log_error() { 
+    local tag=$(gum style --bold --foreground "${COLOR_ERROR}" "[ERROR]")
+    local msg=$(gum style --foreground "${COLOR_ERROR}" " $*")
+    gum join "$tag" "$msg"
+}
 ui_log_fatal() {
-    local tag=$(gum style --foreground "${CLASSIC_BLACK}" --background "${COLOR_ERROR}" "[FATAL]")
+    local tag=$(gum style --bold --foreground "${CLASSIC_BLACK}" --background "${COLOR_ERROR}" "[FATAL]")
     local msg=$(gum style --foreground "${COLOR_ERROR}" " $*")
     gum join "$tag" "$msg"
 }

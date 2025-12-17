@@ -1,0 +1,6 @@
+# Global Gitignore
+# Files
+
+# Folders
+**/__pycache__/
+data/volumes
