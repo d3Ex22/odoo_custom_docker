@@ -1,0 +1,62 @@
+# Starship Configuration - Cyberpunk Theme
+# Palette: https://www.color-hex.com/color-palette/14887
+
+format = """
+$directory\
+$git_branch\
+$git_status\
+$python\
+$docker_context\
+$cmd_duration\
+$line_break\
+$character"""
+
+[character]
+success_symbol = "[➜](bold #0abdc6)"
+error_symbol = "[➜](bold #ea00d9)"
+
+[directory]
+style = "bold #0abdc6"
+format = "[$path]($style) "
+truncation_length = 3
+truncate_to_repo = false
+
+[git_branch]
+symbol = " "
+style = "#711c91"
+format = "[$symbol$branch]($style) "
+
+[git_status]
+style = "#ea00d9"
+format = '([$all_status$ahead_behind]($style) )'
+conflicted = ""
+ahead = "⇡${count}"
+behind = "⇣${count}"
+diverged = "⇕⇡${ahead_count}⇣${behind_count}"
+untracked = "?"
+stashed = ""
+modified = "!"
+staged = "+"
+renamed = "»"
+deleted = ""
+
+[python]
+symbol = " "
+style = "#ea00d9"
+format = '[${symbol}${pyenv_prefix}(${version} )]($style)'
+
+[docker_context]
+symbol = " "
+style = "#133e7c"
+format = "[$symbol$context]($style) "
+only_with_files = false
+disabled = true
+
+[cmd_duration]
+min_time = 2_000
+style = "#711c91"
+format = "[$duration]($style) "
+
+[line_break]
+disabled = false
+

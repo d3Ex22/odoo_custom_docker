@@ -3,18 +3,7 @@
 # pre-commit - Run pre-commit hooks on addon files
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
-
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C="\033[38;2;${R};${G};${B}m"
-RST="\033[0m"
-RED="\033[0;31m"
-YELLOW="\033[0;33m"
-GREEN="\033[0;32m"
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 
 show_help() {
     echo ""
@@ -148,32 +137,6 @@ if [ "$ALL_FILES" = false ]; then
         echo ""
     fi
 fi
-
-# ============================================================================
-# PRE-COMMIT MODE SELECTION
-# ============================================================================
-if [ "$FORCE" = false ] && [ "$ALL_FILES" = false ]; then
-    printf "${C}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${C}  Pre-commit mode${RST}\n"
-    printf "${C}───────────────────────────────────────────────────────────────${RST}\n\n"
-    printf "    ${GREEN}1.${RST} All files in selected paths\n"
-    printf "    ${GREEN}2.${RST} Selected modules only\n"
-    printf "    ${GREEN}3.${RST} Skip pre-commit\n"
-    echo ""
-    printf "  Select mode [1]: "
-    read -r MODE_CHOICE
-    
-    case "$MODE_CHOICE" in
-        2) ;; # Keep SELECTED_PATHS as module paths
-        3) printf "\n  ${YELLOW}○${RST} Pre-commit skipped\n\n"; exit 0 ;;
-        *) SELECTED_PATHS=$(echo "$DETECTED_PATHS" | tr '\n' ' ' | xargs) ;; # All paths
-    esac
-    echo ""
-else
-    # -a or -f: use all detected paths, mode 1
-    SELECTED_PATHS=$(echo "$DETECTED_PATHS" | tr '\n' ' ' | xargs)
-fi
-
 # ============================================================================
 # RUN PRE-COMMIT
 # ============================================================================

@@ -82,6 +82,7 @@ tmux set-option -g history-limit 50000
 tmux set-option -g status off
 
 # ============================================
-# 9. KEEP CONTAINER ALIVE
+# 9. KEEP CONTAINER ALIVE (handle SIGTERM gracefully)
 # ============================================
-exec tail -f /dev/null
+trap 'kill $(jobs -p) 2>/dev/null; exit 0' SIGTERM SIGINT SIGHUP
+while true; do sleep 1 & wait $!; done

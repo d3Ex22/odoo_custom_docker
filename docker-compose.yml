@@ -41,8 +41,8 @@ services:
       - web
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_DB:-postgres} -U ${POSTGRES_USER:-odoo}"]
+      interval: 1s
       timeout: 5s
       retries: 5
 
@@ -87,6 +87,7 @@ services:
       - "traefik.http.routers.odoo.entrypoints=http"
       - "traefik.http.services.odoo.loadbalancer.server.port=8069"
     restart: unless-stopped
+    stop_grace_period: 2s
 
   # ============================================
   # UTILS - Admin Tools
@@ -112,6 +113,7 @@ services:
     networks:
       - web
     restart: unless-stopped
+    stop_grace_period: 2s
 
   # ============================================
   # TTYD - Web Terminal for Utils
@@ -134,6 +136,7 @@ services:
       - "traefik.http.routers.ttyd_utils.rule=Host(`utils.${DOMAIN_SUFFIX:-docker.localhost}`)"
       - "traefik.http.services.ttyd_utils.loadbalancer.server.port=7681"
     restart: unless-stopped
+    stop_grace_period: 2s
 
   # ============================================
   # TTYD - Odoo Logs (interactive + scrollable)
@@ -157,6 +160,7 @@ services:
       - "traefik.http.routers.ttyd_logs.rule=Host(`logs.${DOMAIN_SUFFIX:-docker.localhost}`)"
       - "traefik.http.services.ttyd_logs.loadbalancer.server.port=7681"
     restart: unless-stopped
+    stop_grace_period: 2s
 
 networks:
   web:

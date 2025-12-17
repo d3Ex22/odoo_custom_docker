@@ -19,8 +19,23 @@ RUN apt-get update && apt-get install -y \
     p7zip-full \
     openssh-client \
     sudo \
+    fontconfig \
     && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
+
+# Gum (TUI components)
+ARG GUM_VERSION=0.14.5
+RUN curl -fsSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb" -o /tmp/gum.deb && \
+    dpkg -i /tmp/gum.deb && rm /tmp/gum.deb
+
+# Starship prompt
+RUN curl -fsSL https://starship.rs/install.sh | sh -s -- -y
+
+# Nerd Font (0xProto)
+RUN mkdir -p /usr/share/fonts/nerd-fonts && \
+    curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/0xProto.zip" -o /tmp/0xProto.zip && \
+    unzip -q /tmp/0xProto.zip -d /usr/share/fonts/nerd-fonts && \
+    fc-cache -f && rm /tmp/0xProto.zip
 
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
@@ -47,8 +62,13 @@ RUN useradd -m -s /bin/bash odoo && \
 
 RUN echo "odoo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# Custom prompt (color from theme.conf)
-RUN echo 'source /home/odoo/docker_dev/data/theme.conf 2>/dev/null; C="${UTILS_COLOR:-#2ecc71}"; R=$((16#${C:1:2})); G=$((16#${C:3:2})); B=$((16#${C:5:2})); export PS1="\[\033[38;2;${R};${G};${B}m\]utils ➜ \[\033[0m\]"' >> /home/odoo/.bashrc
+# Starship config
+ENV STARSHIP_CONFIG=/home/odoo/docker_dev/data/.docker/utils/config/starship.toml
+RUN echo 'eval "$(starship init bash)"' >> /home/odoo/.bashrc
+
+# Source theme and UI library
+RUN echo 'source /home/odoo/docker_dev/data/.docker/utils/config/theme.conf 2>/dev/null' >> /home/odoo/.bashrc && \
+    echo 'source /home/odoo/docker_dev/data/.docker/utils/lib/ui.sh 2>/dev/null' >> /home/odoo/.bashrc
 
 # Aliases (alphabetical order by category)
 RUN echo '# Odoo Commands' >> /home/odoo/.bashrc && \
@@ -78,6 +98,7 @@ RUN echo '# Odoo Commands' >> /home/odoo/.bashrc && \
     echo 'alias pre-commit="/home/odoo/docker_dev/data/.docker/utils/commands/pre-commit.sh"' >> /home/odoo/.bashrc && \
     echo 'alias pc="pre-commit"' >> /home/odoo/.bashrc && \
     echo 'alias requirements="/home/odoo/docker_dev/data/.docker/utils/commands/requirements.sh"' >> /home/odoo/.bashrc && \
+    echo 'alias test-ui="/home/odoo/docker_dev/data/.docker/utils/commands/test-ui.sh"' >> /home/odoo/.bashrc && \
     echo 'alias upgrade-code="/home/odoo/docker_dev/data/.docker/utils/commands/upgrade-code.sh"' >> /home/odoo/.bashrc
 
 # Auto-completion

@@ -5,15 +5,7 @@
 # Usage: rebuild [-h|--help] [-nc|--no-cache] [-a|--all]
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
-
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C="\033[38;2;${R};${G};${B}m"
-RST="\033[0m"
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 
 show_help() {
     echo ""
@@ -65,9 +57,6 @@ if [ -z "$HOST_PROJECT_DIR" ]; then
     exit 1
 fi
 
-PROJECT="${COMPOSE_PROJECT_NAME:-odoo}"
-ODOO_CONTAINER="${PROJECT}_odoo"
-DB_CONTAINER="${PROJECT}_db"
 DC="docker compose -f /home/odoo/docker_dev/docker-compose.yml -p $PROJECT"
 COMPAT_FILE="/home/odoo/docker_dev/data/versions.conf"
 

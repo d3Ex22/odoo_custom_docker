@@ -5,19 +5,7 @@
 # Usage: migrate [-h|--help] <database> <version>
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
-
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C="\033[38;2;${R};${G};${B}m"
-RST="\033[0m"
-
-PROJECT="${COMPOSE_PROJECT_NAME:-odoo}"
-DB_CONTAINER="${PROJECT}_db"
-DB_USER="${POSTGRES_USER:-odoo}"
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 DB_PASSWORD="${POSTGRES_PASSWORD:-odoo}"
 COMPAT_FILE="/home/odoo/docker_dev/data/versions.conf"
 

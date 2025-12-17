@@ -124,6 +124,66 @@ addons/
 2. Adjust `PYTHON_VERSION` and `POSTGRES_VERSION` if needed
 3. Run: `rebuild`
 
+### Configuration Files
+
+Configuration files are located in the `data/` folder:
+
+| File | Description |
+|------|-------------|
+| `odoo.conf` | Odoo server configuration |
+| `ttyd.conf` | Web terminal appearance (font, colors, scrollback) |
+| `theme.conf` | Terminal colors and logo colors |
+
+#### `data/odoo.conf`
+
+Standard Odoo configuration file. Common options:
+
+```ini
+[options]
+admin_passwd = odoo          ; Master password
+without_demo = True          ; Disable demo data
+; workers = 0                ; Number of workers (0 = disabled)
+; limit_memory_hard = 2684354560
+; limit_time_real = 120
+```
+
+#### `data/ttyd.conf`
+
+Web terminal (xterm.js) configuration:
+
+```bash
+TTYD_FONT_FAMILY="0xProto Nerd Font Mono, JetBrains Mono, monospace"
+TTYD_FONT_SIZE=14
+TTYD_CURSOR_STYLE=block      # block, underline, bar
+TTYD_CURSOR_BLINK=true
+TTYD_SCROLLBACK=50000
+```
+
+> **Note**: Fonts are rendered client-side (browser). For Nerd Font icons (used by Starship prompt), install a Nerd Font locally:
+> - **Linux**: `wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/0xProto.zip && unzip 0xProto.zip -d ~/.local/share/fonts && fc-cache -f`
+> - **macOS**: `brew install font-0xproto-nerd-font`
+> - **Windows**: Download from https://www.nerdfonts.com/
+
+#### `data/theme.conf`
+
+Terminal colors (Dracula-inspired theme):
+
+```bash
+# Logo colors
+UTILS_COLOR="#2ecc71"        # Green for Utils terminal
+LOGS_COLOR="#8be9fd"         # Cyan for Logs terminal
+
+# ANSI colors
+ANSI_RED="#ff5555"
+ANSI_GREEN="#50fa7b"
+ANSI_YELLOW="#f1fa8c"
+ANSI_BLUE="#bd93f9"
+ANSI_MAGENTA="#ff79c6"
+ANSI_CYAN="#8be9fd"
+```
+
+Changes to these files take effect after `rebuild` (for ttyd/theme) or `reboot` (for odoo.conf).
+
 ### Troubleshooting
 
 **Permission denied on docker.sock (Linux/macOS)**
@@ -265,6 +325,66 @@ addons/
 1. Modifier `.env`: `ODOO_VERSION=18.0`
 2. Ajuster `PYTHON_VERSION` et `POSTGRES_VERSION` si nécessaire
 3. Exécuter: `rebuild`
+
+### Fichiers de Configuration
+
+Les fichiers de configuration sont dans le dossier `data/`:
+
+| Fichier | Description |
+|---------|-------------|
+| `odoo.conf` | Configuration serveur Odoo |
+| `ttyd.conf` | Apparence terminal web (police, couleurs, scrollback) |
+| `theme.conf` | Couleurs terminal et logos |
+
+#### `data/odoo.conf`
+
+Fichier de configuration Odoo standard. Options courantes:
+
+```ini
+[options]
+admin_passwd = odoo          ; Mot de passe master
+without_demo = True          ; Désactiver données démo
+; workers = 0                ; Nombre de workers (0 = désactivé)
+; limit_memory_hard = 2684354560
+; limit_time_real = 120
+```
+
+#### `data/ttyd.conf`
+
+Configuration du terminal web (xterm.js):
+
+```bash
+TTYD_FONT_FAMILY="0xProto Nerd Font Mono, JetBrains Mono, monospace"
+TTYD_FONT_SIZE=14
+TTYD_CURSOR_STYLE=block      # block, underline, bar
+TTYD_CURSOR_BLINK=true
+TTYD_SCROLLBACK=50000
+```
+
+> **Note**: Les polices sont rendues côté client (navigateur). Pour les icônes Nerd Font (utilisées par le prompt Starship), installez une Nerd Font localement:
+> - **Linux**: `wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/0xProto.zip && unzip 0xProto.zip -d ~/.local/share/fonts && fc-cache -f`
+> - **macOS**: `brew install font-0xproto-nerd-font`
+> - **Windows**: Télécharger depuis https://www.nerdfonts.com/
+
+#### `data/theme.conf`
+
+Couleurs du terminal (thème inspiré de Dracula):
+
+```bash
+# Couleurs des logos
+UTILS_COLOR="#2ecc71"        # Vert pour terminal Utils
+LOGS_COLOR="#8be9fd"         # Cyan pour terminal Logs
+
+# Couleurs ANSI
+ANSI_RED="#ff5555"
+ANSI_GREEN="#50fa7b"
+ANSI_YELLOW="#f1fa8c"
+ANSI_BLUE="#bd93f9"
+ANSI_MAGENTA="#ff79c6"
+ANSI_CYAN="#8be9fd"
+```
+
+Les modifications prennent effet après `rebuild` (pour ttyd/theme) ou `reboot` (pour odoo.conf).
 
 ### Dépannage
 

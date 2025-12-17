@@ -6,20 +6,8 @@
 # Alias: db
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C=$(printf '\033[38;2;%s;%s;%sm' "$R" "$G" "$B")
-RST=$(printf '\033[0m')
-
-PROJECT="${COMPOSE_PROJECT_NAME:-odoo}"
-DB_CONTAINER="${PROJECT}_db"
-ODOO_CONTAINER="${PROJECT}_odoo"
-DB_USER="${POSTGRES_USER:-odoo}"
 ZIP_DIR="/home/odoo/docker_dev/db_zip"
 TMP_DIR="/home/odoo/docker_dev/db_zip/.tmp"
 FILESTORE_BASE="/home/odoo/docker_dev/data/volumes/odoo/filestore"

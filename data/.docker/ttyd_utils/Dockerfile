@@ -1,7 +1,13 @@
 FROM tsl0922/ttyd:latest
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends docker.io tmux locales curl ca-certificates gnupg && \
+    apt-get install -y --no-install-recommends \
+        docker.io \
+        tmux \
+        locales \
+        curl \
+        ca-certificates \
+        gnupg && \
     locale-gen en_US.UTF-8 && \
     curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && \
     echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | tee /etc/apt/sources.list.d/ngrok.list && \

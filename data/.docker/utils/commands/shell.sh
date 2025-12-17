@@ -5,18 +5,8 @@
 # Usage: shell [-h|--help] [database]
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C=$(printf '\033[38;2;%s;%s;%sm' "$R" "$G" "$B")
-RST=$(printf '\033[0m')
-
-PROJECT="${COMPOSE_PROJECT_NAME:-odoo}"
-ODOO_CONTAINER="${PROJECT}_odoo"
 TTYD_UTILS="${PROJECT}_ttyd_utils"
 
 show_help() {

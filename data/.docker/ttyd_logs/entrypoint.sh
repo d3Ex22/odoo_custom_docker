@@ -41,6 +41,10 @@ done"
 
 tmux select-pane -t logs:0.1
 
+# Fix logo pane height (6 lines + 1 border + 1 margin = 8)
+LOGO_HEIGHT=8
+tmux resize-pane -t logs:0.0 -y $LOGO_HEIGHT
+
 # Configure tmux
 tmux set-option -g mouse on
 tmux set-option -g pane-border-style "fg=black,bg=black"
@@ -48,8 +52,9 @@ tmux set-option -g pane-active-border-style "fg=black,bg=black"
 tmux unbind -n MouseDrag1Border
 tmux unbind -n MouseDrag1Pane
 
-# Resize logo pane on client attach
-tmux set-hook -g client-attached 'resize-pane -t logs:0.0 -y 7'
+# Resize logo pane on client attach/resize
+tmux set-hook -g client-attached "resize-pane -t logs:0.0 -y $LOGO_HEIGHT"
+tmux set-hook -g client-resized "resize-pane -t logs:0.0 -y $LOGO_HEIGHT"
 
 # Status bar
 UTILS_CONTAINER="${UTILS_CONTAINER:-odoo_utils}"
@@ -73,12 +78,13 @@ source /etc/theme.conf 2>/dev/null
 TTYD_THEME="{\"background\": \"${TERM_BG:-#000000}\", \"foreground\": \"${TERM_FG:-#ffffff}\", \"cursor\": \"${TERM_CURSOR:-#ffffff}\", \"cursorAccent\": \"${TERM_BG:-#000000}\", \"selection\": \"${TERM_SELECTION:-#333333}\", \"black\": \"${ANSI_BLACK:-#000000}\", \"red\": \"${ANSI_RED:-#ff5555}\", \"green\": \"${ANSI_GREEN:-#50fa7b}\", \"yellow\": \"${ANSI_YELLOW:-#f1fa8c}\", \"blue\": \"${ANSI_BLUE:-#bd93f9}\", \"magenta\": \"${ANSI_MAGENTA:-#ff79c6}\", \"cyan\": \"${ANSI_CYAN:-#8be9fd}\", \"white\": \"${ANSI_WHITE:-#f8f8f2}\", \"brightBlack\": \"${ANSI_BRIGHT_BLACK:-#666666}\", \"brightWhite\": \"${ANSI_BRIGHT_WHITE:-#ffffff}\"}"
 
 # Start ttyd
-exec ttyd -W -R \
-    -t "fontFamily=${TTYD_FONT_FAMILY:-monospace}" \
-    -t "fontSize=${TTYD_FONT_SIZE:-14}" \
-    -t "cursorStyle=${TTYD_CURSOR_STYLE:-block}" \
-    -t "cursorBlink=${TTYD_CURSOR_BLINK:-true}" \
-    -t "scrollback=${TTYD_SCROLLBACK:-50000}" \
-    -t "reconnect=0" \
-    -t "theme=${TTYD_THEME}" \
+exec ttyd -W \
+    -t fontFamily="\"${TTYD_FONT_FAMILY:-monospace}\"" \
+    -t fontSize="${TTYD_FONT_SIZE:-14}" \
+    -t fontWeight="${TTYD_FONT_WEIGHT:-500}" \
+    -t fontWeightBold="${TTYD_FONT_WEIGHT_BOLD:-700}" \
+    -t cursorStyle="${TTYD_CURSOR_STYLE:-block}" \
+    -t cursorBlink="${TTYD_CURSOR_BLINK:-true}" \
+    -t scrollback="${TTYD_SCROLLBACK:-50000}" \
+    -t theme="${TTYD_THEME}" \
     tmux attach -t logs

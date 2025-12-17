@@ -3,19 +3,8 @@
 # upgrade-code - Migrate module code using OCA + Odoo official + custom scripts
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C="\033[38;2;${R};${G};${B}m"
-RST="\033[0m"
-RED="\033[0;31m"
-YELLOW="\033[0;33m"
-GREEN="\033[0;32m"
-BLUE="\033[0;34m"
 MAGENTA="\033[0;35m"
 
 show_help() {
@@ -314,21 +303,27 @@ if [ "$USE_OCA" = true ]; then
     OCA_TARGET="$TO_VERSION"
     [[ "$TO_VERSION" > "$OCA_MAX" ]] && OCA_TARGET="$OCA_MAX"
     
-    OCA_CMD="odoo-module-migrate --directory /mnt/extra-addons"
-    OCA_CMD="$OCA_CMD --init-version-name $FROM_VERSION"
-    OCA_CMD="$OCA_CMD --target-version-name $OCA_TARGET"
-    OCA_CMD="$OCA_CMD --no-commit"
-    [ -n "$MODULE" ] && OCA_CMD="$OCA_CMD --modules $MODULE"
-    
     printf "  Target: $OCA_TARGET\n\n"
     
-    if [ "$DRY_RUN" = true ]; then
-        printf "  ${YELLOW}[DRY-RUN]${RST} Would run: $OCA_CMD\n"
-    else
-        docker exec "$CONTAINER" bash -c "$OCA_CMD" 2>&1 | sed 's/^/  /'
-        printf "\n  ${GREEN}✓${RST} OCA completed\n"
-        OCA_DONE=true
-    fi
+    # OCA needs to run per directory (doesn't support multiple paths)
+    for OCA_PATH in $SELECTED_PATHS; do
+        printf "  ${BLUE}▶${RST} $(basename "$OCA_PATH")\n"
+        
+        OCA_CMD="odoo-module-migrate --directory $OCA_PATH"
+        OCA_CMD="$OCA_CMD --init-version-name $FROM_VERSION"
+        OCA_CMD="$OCA_CMD --target-version-name $OCA_TARGET"
+        OCA_CMD="$OCA_CMD --no-commit"
+        [ -n "$MODULE" ] && OCA_CMD="$OCA_CMD --modules $MODULE"
+        
+        if [ "$DRY_RUN" = true ]; then
+            printf "    ${YELLOW}[DRY-RUN]${RST} Would run: $OCA_CMD\n"
+        else
+            docker exec "$CONTAINER" bash -c "$OCA_CMD" 2>&1 | sed 's/^/    /'
+        fi
+        echo ""
+    done
+    printf "  ${GREEN}✓${RST} OCA completed\n"
+    [ "$DRY_RUN" = false ] && OCA_DONE=true
     echo ""
 fi
 
@@ -343,18 +338,20 @@ if [ "$USE_ODOO" = true ]; then
     ODOO_FROM="$FROM_VERSION"
     [[ "$FROM_VERSION" < "17.5" ]] && ODOO_FROM="17.5"
     
+    ADDONS_PATH_ARG=$(echo "$SELECTED_PATHS" | tr ' ' ',')
+    
     if [ ${#ODOO_SCRIPTS[@]} -gt 0 ]; then
         # Run selected scripts only
         for script in "${ODOO_SCRIPTS[@]}"; do
             printf "  ${BLUE}▶${RST} $script\n"
-            ODOO_CMD="cd /mnt/extra-addons && odoo upgrade_code --script '$script' --addons-path /mnt/extra-addons"
+            ODOO_CMD="odoo upgrade_code --script '$script' --addons-path $ADDONS_PATH_ARG"
             [ -n "$MODULE" ] && ODOO_CMD="$ODOO_CMD --glob '$(echo "$MODULE" | cut -d',' -f1)/**/*'"
             
             OUTPUT=$(docker exec "$CONTAINER" bash -c "$ODOO_CMD $DRY_FLAG" 2>&1)
-            FILTERED=$(echo "$OUTPUT" | grep "^/mnt/extra-addons" || true)
+            FILTERED=$(echo "$OUTPUT" | grep "^/mnt" || true)
             
             if [ -n "$FILTERED" ]; then
-                echo "$FILTERED" | sed 's/^/    /'
+                echo "$FILTERED" | sed "s|^/mnt/extra-addons/||" | sed "s|^|    |"
                 [ "$DRY_RUN" = false ] && ODOO_DONE=true
             else
                 printf "    ${GREEN}✓${RST} No changes\n"
@@ -362,16 +359,16 @@ if [ "$USE_ODOO" = true ]; then
         done
     else
         # Run all (no --script)
-        ODOO_CMD="cd /mnt/extra-addons && odoo upgrade_code"
+        ODOO_CMD="odoo upgrade_code"
         ODOO_CMD="$ODOO_CMD --from $ODOO_FROM --to $TO_VERSION"
-        ODOO_CMD="$ODOO_CMD --addons-path /mnt/extra-addons"
+        ODOO_CMD="$ODOO_CMD --addons-path $ADDONS_PATH_ARG"
         [ -n "$MODULE" ] && ODOO_CMD="$ODOO_CMD --glob '$(echo "$MODULE" | cut -d',' -f1)/**/*'"
         
         OUTPUT=$(docker exec "$CONTAINER" bash -c "$ODOO_CMD $DRY_FLAG" 2>&1)
-        FILTERED=$(echo "$OUTPUT" | grep "^/mnt/extra-addons" || true)
+        FILTERED=$(echo "$OUTPUT" | grep "^/mnt" || true)
         
         if [ -n "$FILTERED" ]; then
-            echo "$FILTERED" | sed 's/^/  /'
+            echo "$FILTERED" | sed "s|^/mnt/extra-addons/||" | sed "s|^|  |"
             FILE_COUNT=$(echo "$FILTERED" | wc -l)
             printf "\n  ${GREEN}✓${RST} $FILE_COUNT file(s)\n"
             [ "$DRY_RUN" = false ] && ODOO_DONE=true
@@ -391,6 +388,7 @@ if [ "$USE_CUSTOM" = true ] && [ ${#CUSTOM_SCRIPTS[@]} -gt 0 ]; then
     printf "${C}───────────────────────────────────────────────────────────────${RST}\n\n"
     
     ODOO_UPGRADE_DIR=$(docker exec "$CONTAINER" python3 -c "import odoo; print(odoo.__path__[0])" 2>/dev/null)/upgrade_code
+    ADDONS_PATH_ARG=$(echo "$SELECTED_PATHS" | tr ' ' ',')
     
     for script in "${CUSTOM_SCRIPTS[@]}"; do
         script_name=$(basename "$script")
@@ -398,16 +396,17 @@ if [ "$USE_CUSTOM" = true ] && [ ${#CUSTOM_SCRIPTS[@]} -gt 0 ]; then
         
         docker exec "$CONTAINER" cp "$script" "$ODOO_UPGRADE_DIR/$script_name" 2>/dev/null
         
-        SCRIPT_CMD="cd /mnt/extra-addons && odoo upgrade_code --script '$script_name' --addons-path /mnt/extra-addons"
+        SCRIPT_CMD="odoo upgrade_code --script '$script_name' --addons-path $ADDONS_PATH_ARG"
         [ -n "$MODULE" ] && SCRIPT_CMD="$SCRIPT_CMD --glob '$(echo "$MODULE" | cut -d',' -f1)/**/*'"
         
         OUTPUT=$(docker exec "$CONTAINER" bash -c "$SCRIPT_CMD $DRY_FLAG" 2>&1)
         
         docker exec "$CONTAINER" rm -f "$ODOO_UPGRADE_DIR/$script_name" 2>/dev/null
         
-        FILTERED=$(echo "$OUTPUT" | grep "^/" || true)
+        # Filter only paths within selected addons (not odoo standard)
+        FILTERED=$(echo "$OUTPUT" | grep "^/mnt" || true)
         if [ -n "$FILTERED" ]; then
-            echo "$FILTERED" | sed 's/^/  /'
+            echo "$FILTERED" | sed "s|^/mnt/extra-addons/||" | sed "s|^|  |"
             FILE_COUNT=$(echo "$FILTERED" | wc -l)
             printf "\n  ${GREEN}✓${RST} $FILE_COUNT file(s)\n"
             [ "$DRY_RUN" = false ] && CUSTOM_DONE=true
@@ -428,9 +427,9 @@ if [ "$DRY_RUN" = false ]; then
     printf "${C}───────────────────────────────────────────────────────────────${RST}\n\n"
     
     if [ -n "$MODULE" ]; then
-        MANIFESTS=$(docker exec "$CONTAINER" find /mnt/extra-addons -path "*/$MODULE/__manifest__.py" -type f 2>/dev/null)
+        MANIFESTS=$(docker exec "$CONTAINER" find $SELECTED_PATHS -path "*/$MODULE/__manifest__.py" -type f 2>/dev/null)
     else
-        MANIFESTS=$(docker exec "$CONTAINER" find /mnt/extra-addons -name "__manifest__.py" -type f 2>/dev/null)
+        MANIFESTS=$(docker exec "$CONTAINER" find $SELECTED_PATHS -name "__manifest__.py" -type f 2>/dev/null)
     fi
     
     BUMP_COUNT=0

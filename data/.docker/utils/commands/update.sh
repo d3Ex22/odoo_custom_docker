@@ -6,15 +6,7 @@
 # Alias: u
 # ============================================================================
 
-source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
-
-COLOR="${UTILS_COLOR:-#2ecc71}"
-R=$((16#${COLOR:1:2}))
-G=$((16#${COLOR:3:2}))
-B=$((16#${COLOR:5:2}))
-C="\033[38;2;${R};${G};${B}m"
-RST="\033[0m"
+source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
 
 show_help() {
     echo ""
@@ -46,7 +38,7 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     exit 0
 fi
 
-CONTAINER="${COMPOSE_PROJECT_NAME:-odoo}_odoo"
+CONTAINER="$ODOO_CONTAINER"
 LOGS_COLOR="${LOGS_COLOR:-#8be9fd}"
 LR=$((16#${LOGS_COLOR:1:2}))
 LG=$((16#${LOGS_COLOR:3:2}))
