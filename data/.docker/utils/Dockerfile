@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Gum (TUI components)
-ARG GUM_VERSION=0.14.5
+ARG GUM_VERSION=0.17.0
 RUN curl -fsSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb" -o /tmp/gum.deb && \
     dpkg -i /tmp/gum.deb && rm /tmp/gum.deb
 
