@@ -4,3 +4,4 @@
 # Folders
 **/__pycache__/
 data/volumes
+data/.host_project_dir

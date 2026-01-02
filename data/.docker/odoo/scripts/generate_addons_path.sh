@@ -11,7 +11,7 @@ source "$ENV_FILE"
 
 PATHS=""
 
-if [ -d "/mnt/enterprise-addons" ] && [ "$(ls -A /mnt/enterprise-addons 2>/dev/null)" ]; then
+if [ -d "/mnt/enterprise-addons" ] && [ "$(find /mnt/enterprise-addons -mindepth 1 -not -name '.*' 2>/dev/null | head -n 1)" ]; then
     PATHS="/mnt/enterprise-addons"
 fi
 
