@@ -109,7 +109,7 @@ services:
       - PYTHON_VERSION=${PYTHON_VERSION:-3.12}
       - POSTGRES_VERSION=${POSTGRES_VERSION:-17}
       - ODOO_PATH=/home/odoo/odoo_src
-      - HOST_PROJECT_DIR=${PWD}
+      - HOST_PROJECT_DIR=${COMPOSE_PROJECT_DIR:-.}
     stdin_open: true
     tty: true
     networks:

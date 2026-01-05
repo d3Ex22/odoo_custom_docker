@@ -1,10 +1,36 @@
 #!/bin/bash
 
-# Always update host project directory (in case path changed)
+# Detect host project directory from Docker volume mount
+detect_host_project_dir() {
+    local mount_point="/home/odoo/docker_dev"
+    local host_path=""
+    
+    # Get container ID from hostname (Docker sets hostname to container ID)
+    local container_id=$(hostname 2>/dev/null)
+    
+    # Try docker inspect to get the real host path
+    if [ -n "$container_id" ] && command -v docker &> /dev/null; then
+        host_path=$(docker inspect "$container_id" 2>/dev/null | grep -B2 "\"Destination\": \"${mount_point}\"" | grep "\"Source\"" | sed 's/.*"Source": "\(.*\)".*/\1/' | tr -d ',' | xargs)
+    fi
+    
+    # Fallback to environment variable
+    if [ -z "$host_path" ] || [ "$host_path" = "." ]; then
+        host_path="$HOST_PROJECT_DIR"
+    fi
+    
+    # Final fallback
+    if [ -z "$host_path" ] || [ "$host_path" = "." ]; then
+        host_path="/unknown"
+    fi
+    
+    echo "$host_path"
+}
+HOST_PROJECT_DIR=$(detect_host_project_dir)
 echo "$HOST_PROJECT_DIR" > /home/odoo/docker_dev/data/.host_project_dir
 
 source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/.docker/utils/config/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/.docker/utils/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/.docker/utils/ui.sh 2>/dev/null
 COLOR="${UTILS_COLOR:-#0abdc6}"
 R=$((16#${COLOR:1:2}))
 G=$((16#${COLOR:3:2}))
@@ -12,8 +38,8 @@ B=$((16#${COLOR:5:2}))
 C="\033[38;2;${R};${G};${B}m"
 RST="\033[0m"
 
-# Ensure all .sh scripts in project are executable (mounted from host)
-find /home/odoo/docker_dev/data/.docker -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null
+# Ensure command scripts are executable (mounted from host)
+find /home/odoo/docker_dev/data/.docker/utils/commands -maxdepth 1 -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null
 
 cat > /home/odoo/.welcome << EOF
 clear
@@ -54,4 +80,4 @@ echo ""
 EOF
 chown odoo:odoo /home/odoo/.welcome
 
-exec /home/odoo/docker_dev/data/.docker/utils/lib/keep_alive.sh
+exec tail -f /dev/null
