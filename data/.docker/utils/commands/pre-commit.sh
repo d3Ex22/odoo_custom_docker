@@ -3,24 +3,38 @@
 # pre-commit - Run pre-commit hooks on addon files
 # ============================================================================
 
-source /home/odoo/docker_dev/data/.docker/utils/lib/common.sh
+source /home/odoo/docker_dev/.env 2>/dev/null
+source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
+
+COLOR="${UTILS_COLOR:-#2ecc71}"
+R=$((16#${COLOR:1:2}))
+G=$((16#${COLOR:3:2}))
+B=$((16#${COLOR:5:2}))
+C="\033[38;2;${R};${G};${B}m"
+RST="\033[0m"
+RED="\033[0;31m"
+YELLOW="\033[0;33m"
+GREEN="\033[0;32m"
 
 show_help() {
     echo ""
     echo "pre-commit - Run pre-commit hooks on addon files"
     echo ""
     printf "   ${C}USAGE${RST}\n"
-    echo "       pre-commit [OPTIONS]"
+    echo "       pre-commit [FOLDER] [OPTIONS]"
+    echo ""
+    printf "   ${C}ARGUMENTS${RST}\n"
+    echo "       FOLDER            Specify folder name (e.g., custom-addons, oca-addons)"
     echo ""
     printf "   ${C}OPTIONS${RST}\n"
-    echo "       -a, --all-files   Run on all paths/modules without selection"
-    echo "       -f, --force       Run on all files without any prompts"
-    echo "       -h, --help        Show this help"
+    echo "       -a, --all          Run on all modules (skip module selection)"
+    echo "       -h, --help         Show this help"
     echo ""
     printf "   ${C}EXAMPLES${RST}\n"
-    echo "       pre-commit              # Interactive selection"
-    echo "       pre-commit -a           # All files, no path/module selection"
-    echo "       pre-commit -a -f        # All files, no prompts at all"
+    echo "       pre-commit                      # Interactive path and module selection"
+    echo "       pre-commit custom-addons        # Pre-select custom-addons, then select modules"
+    echo "       pre-commit custom-addons -a     # All modules in custom-addons folder"
+    echo "       pre-commit -a                   # All modules in all paths"
     echo ""
 }
 
@@ -29,14 +43,16 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     exit 0
 fi
 
-ALL_FILES=false
-FORCE=false
+ALL_MODULES=false
+TARGET_FOLDER=""
 
+# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -a|--all-files) ALL_FILES=true; shift ;;
-        -f|--force) FORCE=true; shift ;;
-        *) shift ;;
+        -a|--all) ALL_MODULES=true; shift ;;
+        -h|--help) show_help; exit 0 ;;
+        -*) shift ;;
+        *) TARGET_FOLDER="$1"; shift ;;
     esac
 done
 
@@ -61,7 +77,19 @@ SELECTED_PATHS="/mnt/extra-addons"
 
 PATH_COUNT=$(echo "$DETECTED_PATHS" | grep -c "/" || echo "0")
 
-if [ "$PATH_COUNT" -gt 1 ] && [ "$ALL_FILES" = false ]; then
+# If TARGET_FOLDER is specified, try to match it
+if [ -n "$TARGET_FOLDER" ]; then
+    MATCHED_PATH=$(echo "$DETECTED_PATHS" | grep "/$TARGET_FOLDER$" | head -1)
+    if [ -n "$MATCHED_PATH" ]; then
+        SELECTED_PATHS="$MATCHED_PATH"
+        printf "${GREEN}  ✓ Using folder: $(basename "$MATCHED_PATH")${RST}\n\n"
+    else
+        printf "${YELLOW}  ⚠ Folder '$TARGET_FOLDER' not found, falling back to interactive selection${RST}\n\n"
+        TARGET_FOLDER=""
+    fi
+fi
+
+if [ "$PATH_COUNT" -gt 1 ] && [ -z "$TARGET_FOLDER" ]; then
     printf "${C}───────────────────────────────────────────────────────────────${RST}\n"
     printf "${C}  Select addon paths ($PATH_COUNT detected)${RST}\n"
     printf "${C}───────────────────────────────────────────────────────────────${RST}\n\n"
@@ -92,17 +120,17 @@ if [ "$PATH_COUNT" -gt 1 ] && [ "$ALL_FILES" = false ]; then
         SELECTED_PATHS=$(echo "$DETECTED_PATHS" | tr '\n' ' ' | xargs)
     fi
     echo ""
-elif [ "$PATH_COUNT" -eq 1 ]; then
+elif [ "$PATH_COUNT" -eq 1 ] && [ -z "$TARGET_FOLDER" ]; then
     SELECTED_PATHS="$DETECTED_PATHS"
 fi
 
 # ============================================================================
 # MODULE SELECTION
 # ============================================================================
-if [ "$ALL_FILES" = false ]; then
+if [ "$ALL_MODULES" = false ]; then
     # Find all modules in selected paths
-    ALL_MODULES=$(docker exec "$CONTAINER" find $SELECTED_PATHS -maxdepth 2 -name "__manifest__.py" -type f 2>/dev/null | xargs -I{} dirname {} | sort -u)
-    MODULE_COUNT=$(echo "$ALL_MODULES" | grep -c "/" || echo "0")
+    FOUND_MODULES=$(docker exec "$CONTAINER" find $SELECTED_PATHS -maxdepth 2 -name "__manifest__.py" -type f 2>/dev/null | xargs -I{} dirname {} | sort -u)
+    MODULE_COUNT=$(echo "$FOUND_MODULES" | grep -c "/" || echo "0")
     
     if [ "$MODULE_COUNT" -gt 0 ]; then
         printf "${C}───────────────────────────────────────────────────────────────${RST}\n"
@@ -117,7 +145,7 @@ if [ "$ALL_FILES" = false ]; then
             printf "    ${GREEN}%2d.${RST} %s\n" "$i" "$mod_name"
             MODULE_MAP[$i]="$mod_path"
             ((i++))
-        done <<< "$ALL_MODULES"
+        done <<< "$FOUND_MODULES"
         
         echo ""
         printf "  Select modules (1,2,3 / all) [all]: "
@@ -132,9 +160,17 @@ if [ "$ALL_FILES" = false ]; then
             done
             SELECTED_PATHS=$(echo "$SELECTED_PATHS" | xargs)
         else
-            SELECTED_PATHS=$(echo "$ALL_MODULES" | tr '\n' ' ')
+            SELECTED_PATHS=$(echo "$FOUND_MODULES" | tr '\n' ' ')
         fi
         echo ""
+    fi
+else
+    # -a flag: use all modules in selected paths
+    FOUND_MODULES=$(docker exec "$CONTAINER" find $SELECTED_PATHS -maxdepth 2 -name "__manifest__.py" -type f 2>/dev/null | xargs -I{} dirname {} | sort -u)
+    if [ -n "$FOUND_MODULES" ]; then
+        SELECTED_PATHS=$(echo "$FOUND_MODULES" | tr '\n' ' ')
+        MODULE_COUNT=$(echo "$FOUND_MODULES" | grep -c "/" || echo "0")
+        printf "${GREEN}  ✓ Using all $MODULE_COUNT modules${RST}\n\n"
     fi
 fi
 # ============================================================================
@@ -144,9 +180,9 @@ printf "${C}──────────────────────�
 printf "${GREEN}  ▶ Running pre-commit${RST}\n"
 printf "${C}───────────────────────────────────────────────────────────────${RST}\n\n"
 
-# Check if pre-commit is installed
+# Check if pre-commit is installed (cache is persisted in volume)
 if ! docker exec "$CONTAINER" which pre-commit >/dev/null 2>&1; then
-    printf "  Installing pre-commit...\n\n"
+    printf "  ${YELLOW}Installing pre-commit (first time only)...${RST}\n\n"
     docker exec "$CONTAINER" pip install pre-commit --quiet 2>/dev/null
 fi
 
@@ -161,13 +197,16 @@ done
 
 echo ""
 
-# Run pre-commit with temporary git repo and config
+# Run pre-commit with persistent git repo and config
 if [ -n "$FILES_TO_PROCESS" ]; then
     docker exec "$CONTAINER" bash -c '
         cd /mnt/extra-addons
+        PRECOMMIT_CACHE="/home/odoo/.cache/pre-commit"
+        PRECOMMIT_GIT="$PRECOMMIT_CACHE/git_repo"
         
         # Fix git ownership issues
         git config --global --add safe.directory /mnt/extra-addons
+        git config --global --add safe.directory "$PRECOMMIT_GIT"
         
         # Backup existing .pre-commit-config.yaml if present
         if [ -f .pre-commit-config.yaml ]; then
@@ -182,14 +221,27 @@ if [ -n "$FILES_TO_PROCESS" ]; then
             mv .git .git_backup_precommit
         fi
         
-        # Create temporary git repo
-        git init --quiet
-        git config user.email "pre-commit@local"
-        git config user.name "Pre-commit"
+        # Use persistent git repo or create new one
+        if [ -d "$PRECOMMIT_GIT/.git" ]; then
+            # Restore persistent git repo
+            cp -a "$PRECOMMIT_GIT/.git" .git
+        else
+            # Create new git repo and save it
+            git init --quiet
+            git config user.email "pre-commit@local"
+            git config user.name "Pre-commit"
+            mkdir -p "$PRECOMMIT_GIT"
+            cp -a .git "$PRECOMMIT_GIT/.git"
+        fi
+        
+        # Update git index with current files
         git add -A
         
         # Run pre-commit
         pre-commit run --files '"$FILES_TO_PROCESS"' || true
+        
+        # Save updated git repo to cache
+        cp -a .git "$PRECOMMIT_GIT/.git"
         
         # Cleanup: remove temp git, restore original
         rm -rf .git

@@ -44,8 +44,8 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_DB:-postgres} -U ${POSTGRES_USER:-odoo}"]
       interval: 1s
-      timeout: 5s
-      retries: 5
+      timeout: 1s
+      retries: 10
     stop_grace_period: 2s
 
   # ============================================
@@ -72,6 +72,7 @@ services:
       - ./data/volumes/odoo/sessions:/var/lib/odoo/sessions
       - ./data/volumes/odoo/logs:/var/log/odoo
       - ./data/volumes/odoo/cache:/var/lib/odoo/cache
+      - ./data/volumes/odoo/pre-commit:/home/odoo/.cache/pre-commit
       - ./data/migration_scripts:/opt/migration_scripts:ro
       - ./data/.pre-commit-config.yaml:/opt/.pre-commit-config.yaml:ro
     environment:

@@ -2,6 +2,9 @@
 # Files
 
 # Folders
-**/__pycache__/
-data/volumes
+**/__pycache__/**/*
+data/volumes/**/*
+
+# Files
 data/.host_project_dir
+addons/.pre-commit-config.yaml
