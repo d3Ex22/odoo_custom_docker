@@ -29,7 +29,8 @@ HOST_PROJECT_DIR=$(detect_host_project_dir)
 echo "$HOST_PROJECT_DIR" > /home/odoo/docker_dev/data/.host_project_dir
 
 source /home/odoo/docker_dev/.env 2>/dev/null
-source /home/odoo/docker_dev/data/.docker/utils/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/theme.conf 2>/dev/null
+source /home/odoo/docker_dev/data/.docker/utils/config/theme.conf 2>/dev/null
 source /home/odoo/docker_dev/data/.docker/utils/ui.sh 2>/dev/null
 COLOR="${UTILS_COLOR:-#0abdc6}"
 R=$((16#${COLOR:1:2}))
