@@ -59,7 +59,7 @@ ODOO_CMD="odoo -c /etc/odoo/odoo.conf"
 echo "Starting Odoo in tmux session..."
 
 # Build colored PS1 for shell prompt (using LOGS_COLOR)
-LOGS_COLOR="${LOGS_COLOR:-#8be9fd}"
+LOGS_COLOR="${LOGS_COLOR:-#00fff9}"
 LR=$((16#${LOGS_COLOR:1:2}))
 LG=$((16#${LOGS_COLOR:3:2}))
 LB=$((16#${LOGS_COLOR:5:2}))
