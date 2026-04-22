@@ -1,173 +1,193 @@
+# =============================================================================
+# WARNING:
+# You should not need to modify this file.
+# Only settings you need to modify are located in .env file
+# =============================================================================
+
 services:
-  # ============================================
-  # TRAEFIK - Reverse Proxy
-  # ============================================
+  # -----------------------------------------------------------------------------
+  # TRAEFIK — Reverse Proxy
+  # -----------------------------------------------------------------------------
+  # Routes incoming HTTP traffic to the correct container based on hostname.
+  # All URLs are defined in .env (ODOO_URL, UTILS_URL, LOGS_URL).
+  #
+  # Dashboard: http://localhost:8080  (insecure mode, dev only)
+  # -----------------------------------------------------------------------------
   traefik:
-    container_name: ${COMPOSE_PROJECT_NAME:-odoo}_traefik
+    container_name: ${COMPOSE_PROJECT_NAME}_traefik
     image: traefik:latest
     command:
-      - "--api.insecure=true"
-      - "--providers.docker"
-      - "--entrypoints.http.address=:80"
-      - "--serversTransport.insecureSkipVerify=true"
+      - "--api.insecure=true"                          # Enable dashboard without auth (dev only)
+      - "--providers.docker"                           # Auto-discover containers via Docker labels
+      - "--entrypoints.http.address=:80"               # Listen on port 80
+      - "--serversTransport.insecureSkipVerify=true"   # Allow self-signed certs on backends
     ports:
-      - "80:80"
-      - "8080:8080"
+      - "80:80"       # HTTP traffic
+      - "8080:8080"   # Traefik dashboard
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - /var/run/docker.sock:/var/run/docker.sock:rw   # Required for Docker provider auto-discovery
     networks:
-      - web
-    restart: unless-stopped
-    stop_grace_period: 2s
+      - network
+    restart: ${RESTART_ON_FAIL}
+    stop_grace_period: ${FORCE_STOP_DELAY}
 
-  # ============================================
-  # DATABASE - PostgreSQL
-  # ============================================
+
+  # -----------------------------------------------------------------------------
+  # DATABASE — PostgreSQL
+  # -----------------------------------------------------------------------------
+  # Custom image built from the official postgres image.
+  # Adds the pgvector extension (required by Odoo 17+).
+  #
+  # Data is persisted in ./.data/volumes/db-container/pgdata.
+  # Database backups/restores go through ./db_files/.
+  # -----------------------------------------------------------------------------
   db:
-    container_name: ${COMPOSE_PROJECT_NAME:-odoo}_db
+    container_name: ${COMPOSE_PROJECT_NAME}_db
     build:
       context: .
-      dockerfile: data/.docker/db/Dockerfile
+      dockerfile: .data/docker/db/Dockerfile
       args:
-        POSTGRES_VERSION: ${POSTGRES_VERSION:-17}
+        POSTGRES_VERSION: ${POSTGRES_VERSION}
     environment:
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-odoo}
-      - POSTGRES_USER=${POSTGRES_USER:-odoo}
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo
       - PGDATA=/var/lib/postgresql/data
     volumes:
-      - ./data/volumes/db/pgdata:/var/lib/postgresql/data
-      - ./db_zip:/mnt/db_zip:rw
+      - ./.data/volumes/db-container/pgdata:/var/lib/postgresql/data:rw   # Persistent database storage
+      - ./db_files:/mnt/db_files:rw                             # Shared folder for backup/restore
     networks:
-      - web
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_DB:-postgres} -U ${POSTGRES_USER:-odoo}"]
-      interval: 1s
-      timeout: 1s
-      retries: 10
-    stop_grace_period: 2s
+      - network
+    restart: ${RESTART_ON_FAIL}
+    stop_grace_period: ${FORCE_STOP_DELAY}
 
-  # ============================================
-  # ODOO - Application Server (screen session)
-  # ============================================
+
+  # -----------------------------------------------------------------------------
+  # ODOO — Application Server + Web Terminal (Logs)
+  # -----------------------------------------------------------------------------
+  # Odoo is installed from nightly source and runs inside a tmux session.
+  # This allows ~2s restarts (kill + relaunch process) without rebooting container.
+  # A web terminal serves the tmux session directly (no docker exec).
+  #
+  # The entrypoint:
+  #   1. Generates addons_path from mounted folders (scanning subfolders if enabled)
+  #   2. Installs Python requirements from addons (if changed)
+  #   3. Waits for PostgreSQL to be ready
+  #   4. Starts Odoo in a persistent tmux session
+  #   5. Launches the web terminal to expose the session via browser
+  #
+  # Odoo:  http://${ODOO_URL}
+  # Logs:  http://${LOGS_URL}
+  # -----------------------------------------------------------------------------
   odoo:
-    container_name: ${COMPOSE_PROJECT_NAME:-odoo}_odoo
+    container_name: ${COMPOSE_PROJECT_NAME}_odoo
     build:
       context: .
-      dockerfile: data/.docker/odoo/Dockerfile
+      dockerfile: .data/docker/odoo/Dockerfile
       args:
-        ODOO_VERSION: ${ODOO_VERSION:-19.0}
-        ODOO_BUILD: ${ODOO_BUILD:-latest}
-        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
-    depends_on:
-      db:
-        condition: service_healthy
+        ODOO_VERSION: ${ODOO_VERSION}
+        ODOO_BUILD: ${ODOO_BUILD}
+        PYTHON_VERSION: ${PYTHON_VERSION}
     volumes:
-      - ./data/odoo.conf:/etc/odoo/odoo.conf
-      - ${ADDONS_PATH:-./addons}:/mnt/extra-addons:rw
-      - ${ENTERPRISE_PATH:-./data/.enterprise_placeholder}:/mnt/enterprise-addons:ro
-      - ./.env:/home/odoo/.env:ro
-      - ./data/volumes/odoo/filestore:/var/lib/odoo/filestore
-      - ./data/volumes/odoo/sessions:/var/lib/odoo/sessions
-      - ./data/volumes/odoo/logs:/var/log/odoo
-      - ./data/volumes/odoo/cache:/var/lib/odoo/cache
-      - ./data/volumes/odoo/pre-commit:/home/odoo/.cache/pre-commit
-      - ./data/migration_scripts:/opt/migration_scripts:ro
-      - ./data/.pre-commit-config.yaml:/opt/.pre-commit-config.yaml:ro
+      # --- Configuration ---
+      - ./.config/odoo.conf:/etc/odoo/odoo.conf                                                # Odoo server config
+      - ./.config:/etc/config:ro                                                               # Theme, Starship template and other config files
+      - ./.data/themes:/etc/themes:ro                                                            # Shared theme definitions (palette + derived colors)
+      - ./.env:/home/odoo/.env:ro                                                              # Passed to entrypoint for runtime settings (required by 'rebuild' command)
+      # --- Addons ---
+      - ${ADDONS_PATH}:/mnt/extra-addons:rw                                                    # Custom addons (from ADDONS_PATH)
+      - ${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:/mnt/enterprise-addons:rw  # Enterprise addons (empty folder if not set)
+      # --- Persistent data ---
+      - ./.data/volumes/odoo-container/odoo:/var/lib/odoo:rw                                   # Odoo data
+      - ./.data/volumes/odoo-container/cache:/var/odoo/cache:rw                                # Runtime cache (module list, requirements hash)
+      - ./.data/volumes/shared:/var/shared:ro                                                  # Shared data from utils (version cache for tmux status bar)
+      # --- IoT virtual printers ---
+      - ./.data/volumes/virtual-printer:/var/spool/virtual-printer:rw           # Virtual printer output (PDF/ZPL renders)
+      # --- Dev tooling ---
+      - ./.data/volumes/odoo-container/pre-commit:/home/odoo/.cache/pre-commit:rw              # pre-commit cache (persisted across rebuilds, needed by 'pre-commit' and 'upgrade-code' commands)
+      - ./.data/migration_scripts:/opt/migration_scripts:ro                                    # Scripts run via 'upgrade-code' command
+      - ./.config/.pre-commit-config.yaml:/opt/.pre-commit-config.yaml:ro                      # pre-commit hooks needed by 'pre-commit' and 'upgrade-code' commands
     environment:
       - HOST=db
       - PORT=5432
-      - USER=${POSTGRES_USER:-odoo}
-      - PASSWORD=${POSTGRES_PASSWORD:-odoo}
+      - USER=odoo
+      - PASSWORD=odoo
+      - ENTERPRISE_PATH=${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder} # Needed for rebuild command
+      - ADDONS_PATH=${ADDONS_PATH} # Needed for rebuild command
+      - SELECTED_DB=${SELECTED_DB}
+      - ODOO_IOT_BOX=${ODOO_IOT_BOX:-false}
+      - ODOO_VERSION=${ODOO_VERSION}
     stdin_open: true
     tty: true
     networks:
-      - web
+      - network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.odoo.rule=Host(`odoo.${DOMAIN_SUFFIX:-docker.localhost}`)"
+      - "traefik.http.routers.odoo.rule=Host(`${ODOO_URL}`)"
       - "traefik.http.routers.odoo.entrypoints=http"
+      - "traefik.http.routers.odoo.service=odoo"
       - "traefik.http.services.odoo.loadbalancer.server.port=8069"
-    restart: unless-stopped
-    stop_grace_period: 2s
+      - "traefik.http.routers.logs.rule=Host(`${LOGS_URL}`)"
+      - "traefik.http.routers.logs.entrypoints=http"
+      - "traefik.http.routers.logs.service=logs"
+      - "traefik.http.services.logs.loadbalancer.server.port=7681"
+    restart: ${RESTART_ON_FAIL}
+    stop_grace_period: ${FORCE_STOP_DELAY}
 
-  # ============================================
-  # UTILS - Admin Tools
-  # ============================================
+
+  # -----------------------------------------------------------------------------
+  # UTILS — Admin Tools Container + Web Terminal
+  # -----------------------------------------------------------------------------
+  # Persistent container that holds all management commands:
+  #   reboot, update, database, rebuild, migrate, shell, conf, ...
+  #
+  # Has access to the Docker socket to control other containers.
+  # A web terminal serves the tmux session directly (no docker exec).
+  #
+  # Accessible at: http://${UTILS_URL}
+  # -----------------------------------------------------------------------------
   utils:
-    container_name: ${COMPOSE_PROJECT_NAME:-odoo}_utils
+    container_name: ${COMPOSE_PROJECT_NAME}_utils
     build:
       context: .
-      dockerfile: data/.docker/utils/Dockerfile
+      dockerfile: .data/docker/utils/Dockerfile
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      - .:/home/odoo/docker_dev:rw
-      - ${ODOO_PATH:-./data/.odoo_placeholder}:/home/odoo/odoo_src:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw                                              # Docker socket — required to exec into other containers
+      - .:/home/utils/odoo_custom_docker:rw                                                                # Full project folder — scripts read .env and docker-compose.yml from here
+      - ${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:/home/utils/odoo_custom_docker/${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:rw  # Mirrored enterprise path — needed by 'rebuild' to pass modules to odoo container
+      - ${ODOO_PATH:-./.data/volumes/.odoo_placeholder}:/home/utils/odoo_src:rw                            # Odoo source — used for module name autocompletion
+      - ./.data/volumes/shared:/var/shared:rw                                                       # Shared data with odoo (version cache for tmux status bar)
     environment:
-      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-odoo}
-      - ODOO_VERSION=${ODOO_VERSION:-19.0}
-      - PYTHON_VERSION=${PYTHON_VERSION:-3.12}
-      - POSTGRES_VERSION=${POSTGRES_VERSION:-17}
-      - ODOO_PATH=/home/odoo/odoo_src
-      - HOST_PROJECT_DIR=${COMPOSE_PROJECT_DIR:-.}
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
+      - ODOO_VERSION=${ODOO_VERSION}
+      - PYTHON_VERSION=${PYTHON_VERSION}
+      - POSTGRES_VERSION=${POSTGRES_VERSION}
+      - ENTERPRISE_PATH=${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}
+      - ODOO_PATH=${ODOO_PATH:-./.data/volumes/.odoo_placeholder}
     stdin_open: true
     tty: true
     networks:
-      - web
-    restart: unless-stopped
-    stop_grace_period: 2s
-
-  # ============================================
-  # TTYD - Web Terminal for Utils
-  # ============================================
-  ttyd_utils:
-    container_name: ${COMPOSE_PROJECT_NAME:-odoo}_ttyd_utils
-    build:
-      context: .
-      dockerfile: data/.docker/ttyd_utils/Dockerfile
-    environment:
-      - UTILS_CONTAINER=${COMPOSE_PROJECT_NAME:-odoo}_utils
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      - ./data/ttyd.conf:/etc/ttyd.conf:ro
-      - ./data/theme.conf:/etc/theme.conf:ro
-    networks:
-      - web
+      - network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ttyd_utils.rule=Host(`utils.${DOMAIN_SUFFIX:-docker.localhost}`)"
-      - "traefik.http.services.ttyd_utils.loadbalancer.server.port=7681"
-    restart: unless-stopped
-    stop_grace_period: 2s
+      - "traefik.http.routers.utils.rule=Host(`${UTILS_URL}`)"
+      - "traefik.http.routers.utils.entrypoints=http"
+      - "traefik.http.services.utils.loadbalancer.server.port=7681"
+    restart: ${RESTART_ON_FAIL}
+    stop_grace_period: ${FORCE_STOP_DELAY}
 
-  # ============================================
-  # TTYD - Odoo Logs (interactive + scrollable)
-  # ============================================
-  ttyd_logs:
-    container_name: ${COMPOSE_PROJECT_NAME:-odoo}_ttyd_logs
-    build:
-      context: .
-      dockerfile: data/.docker/ttyd_logs/Dockerfile
-    environment:
-      - ODOO_CONTAINER=${COMPOSE_PROJECT_NAME:-odoo}_odoo
-      - UTILS_CONTAINER=${COMPOSE_PROJECT_NAME:-odoo}_utils
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      - ./data/ttyd.conf:/etc/ttyd.conf:ro
-      - ./data/theme.conf:/etc/theme.conf:ro
-    networks:
-      - web
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.ttyd_logs.rule=Host(`logs.${DOMAIN_SUFFIX:-docker.localhost}`)"
-      - "traefik.http.services.ttyd_logs.loadbalancer.server.port=7681"
-    restart: unless-stopped
-    stop_grace_period: 2s
 
+# -----------------------------------------------------------------------------
+# NETWORKS
+# -----------------------------------------------------------------------------
+# Single bridge network shared by all containers.
+# Name and subnet are configured in .env (NETWORK_NAME, NETWORK_SUBNET).
+# Only change these in .env if running multiple instances simultaneously.
+# -----------------------------------------------------------------------------
 networks:
-  web:
+  network:
+    name: ${NETWORK_NAME}
     driver: bridge
     ipam:
       config:
-        - subnet: ${NETWORK_SUBNET:-172.28.0.0/16}
+        - subnet: ${NETWORK_SUBNET}

@@ -1,10 +1,7 @@
-# Global Gitignore
-# Files
-
 # Folders
-**/__pycache__/**/*
-data/volumes/**/*
+**/__pycache__
+.data/volumes
 
 # Files
-data/.host_project_dir
+.data/host_project_path.map
 addons/.pre-commit-config.yaml

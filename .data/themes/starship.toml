@@ -1,0 +1,496 @@
+"$schema" = 'https://starship.rs/config-schema.json'
+
+format = """
+[](red)\
+$os\
+$username\
+[](bg:peach fg:red)\
+$directory\
+[](bg:yellow fg:peach)\
+$git_branch\
+$git_status\
+[](fg:yellow bg:green)\
+$c\
+$rust\
+$golang\
+$nodejs\
+$php\
+$java\
+$kotlin\
+$haskell\
+$python\
+[](fg:green bg:sapphire)\
+$conda\
+[](fg:sapphire bg:lavender)\
+$time\
+[ ](fg:lavender)\
+$cmd_duration\
+$line_break\
+$character"""
+
+palette = '${STARSHIP_THEME}'
+
+[os]
+disabled = false
+style = "bg:red fg:crust"
+
+[os.symbols]
+Windows = ""
+Ubuntu = "󰕈"
+SUSE = ""
+Raspbian = "󰐿"
+Mint = "󰣭"
+Macos = "󰀵"
+Manjaro = ""
+Linux = "󰌽"
+Gentoo = "󰣨"
+Fedora = "󰣛"
+Alpine = ""
+Amazon = ""
+Android = ""
+AOSC = ""
+Arch = "󰣇"
+Artix = "󰣇"
+CentOS = ""
+Debian = "󰣚"
+Redhat = "󱄛"
+RedHatEnterprise = "󱄛"
+
+[username]
+show_always = true
+style_user = "bg:red fg:crust"
+style_root = "bg:red fg:crust"
+format = '[ $user]($style)'
+
+[directory]
+style = "bg:peach fg:crust"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[directory.substitutions]
+"Documents" = "󰈙 "
+"Downloads" = " "
+"Music" = "󰝚 "
+"Pictures" = " "
+"Developer" = "󰲋 "
+
+[git_branch]
+symbol = ""
+style = "bg:yellow"
+format = '[[ $symbol $branch ](fg:crust bg:yellow)]($style)'
+
+[git_status]
+style = "bg:yellow"
+format = '[[($all_status$ahead_behind )](fg:crust bg:yellow)]($style)'
+
+[nodejs]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[c]
+symbol = " "
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[rust]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[golang]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[php]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[java]
+symbol = " "
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[kotlin]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[haskell]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version) ](fg:crust bg:green)]($style)'
+
+[python]
+symbol = ""
+style = "bg:green"
+format = '[[ $symbol( $version)(\(#$virtualenv\)) ](fg:crust bg:green)]($style)'
+
+[docker_context]
+symbol = ""
+style = "bg:sapphire"
+format = '[[ $symbol( $context) ](fg:crust bg:sapphire)]($style)'
+
+[conda]
+symbol = "  "
+style = "fg:crust bg:sapphire"
+format = '[$symbol$environment ]($style)'
+ignore_base = false
+
+[time]
+disabled = false
+time_format = "%T"
+style = "bg:lavender"
+format = '[[  $time ](fg:crust bg:lavender)]($style)'
+
+[line_break]
+disabled = true
+
+[character]
+disabled = false
+success_symbol = '[❯](bold fg:green)'
+error_symbol = '[❯](bold fg:red)'
+vimcmd_symbol = '[❮](bold fg:green)'
+vimcmd_replace_one_symbol = '[❮](bold fg:lavender)'
+vimcmd_replace_symbol = '[❮](bold fg:lavender)'
+vimcmd_visual_symbol = '[❮](bold fg:yellow)'
+
+[cmd_duration]
+show_milliseconds = true
+format = " in $duration "
+style = "bg:lavender"
+disabled = false
+show_notifications = true
+min_time_to_notify = 45000
+
+
+# ============================================================================
+#                            PALETTES
+# ============================================================================
+# Each palette maps semantic color names to ${} variables from the active theme.
+# Only the active palette (set by STARSHIP_THEME) needs valid variables.
+# Variables are resolved by envsubst at container startup.
+# ============================================================================
+
+
+# --- Catppuccin Mocha ---
+[palettes.catppuccin_mocha]
+rosewater = "${CAT_ROSEWATER}"
+flamingo = "${CAT_FLAMINGO}"
+pink = "${CAT_PINK}"
+mauve = "${CAT_MAUVE}"
+red = "${CAT_RED}"
+maroon = "${CAT_MAROON}"
+peach = "${CAT_PEACH}"
+yellow = "${CAT_YELLOW}"
+green = "${CAT_GREEN}"
+teal = "${CAT_TEAL}"
+sky = "${CAT_SKY}"
+sapphire = "${CAT_SAPPHIRE}"
+blue = "${CAT_BLUE}"
+lavender = "${CAT_LAVENDER}"
+text = "${CAT_TEXT}"
+subtext1 = "${CAT_SUBTEXT1}"
+subtext0 = "${CAT_SUBTEXT0}"
+overlay2 = "${CAT_OVERLAY2}"
+overlay1 = "${CAT_OVERLAY1}"
+overlay0 = "${CAT_OVERLAY0}"
+surface2 = "${CAT_SURFACE2}"
+surface1 = "${CAT_SURFACE1}"
+surface0 = "${CAT_SURFACE0}"
+base = "${CAT_BASE}"
+mantle = "${CAT_MANTLE}"
+crust = "${CAT_CRUST}"
+
+# --- Catppuccin Frappé ---
+[palettes.catppuccin_frappe]
+rosewater = "${CAT_ROSEWATER}"
+flamingo = "${CAT_FLAMINGO}"
+pink = "${CAT_PINK}"
+mauve = "${CAT_MAUVE}"
+red = "${CAT_RED}"
+maroon = "${CAT_MAROON}"
+peach = "${CAT_PEACH}"
+yellow = "${CAT_YELLOW}"
+green = "${CAT_GREEN}"
+teal = "${CAT_TEAL}"
+sky = "${CAT_SKY}"
+sapphire = "${CAT_SAPPHIRE}"
+blue = "${CAT_BLUE}"
+lavender = "${CAT_LAVENDER}"
+text = "${CAT_TEXT}"
+subtext1 = "${CAT_SUBTEXT1}"
+subtext0 = "${CAT_SUBTEXT0}"
+overlay2 = "${CAT_OVERLAY2}"
+overlay1 = "${CAT_OVERLAY1}"
+overlay0 = "${CAT_OVERLAY0}"
+surface2 = "${CAT_SURFACE2}"
+surface1 = "${CAT_SURFACE1}"
+surface0 = "${CAT_SURFACE0}"
+base = "${CAT_BASE}"
+mantle = "${CAT_MANTLE}"
+crust = "${CAT_CRUST}"
+
+# --- Catppuccin Macchiato ---
+[palettes.catppuccin_macchiato]
+rosewater = "${CAT_ROSEWATER}"
+flamingo = "${CAT_FLAMINGO}"
+pink = "${CAT_PINK}"
+mauve = "${CAT_MAUVE}"
+red = "${CAT_RED}"
+maroon = "${CAT_MAROON}"
+peach = "${CAT_PEACH}"
+yellow = "${CAT_YELLOW}"
+green = "${CAT_GREEN}"
+teal = "${CAT_TEAL}"
+sky = "${CAT_SKY}"
+sapphire = "${CAT_SAPPHIRE}"
+blue = "${CAT_BLUE}"
+lavender = "${CAT_LAVENDER}"
+text = "${CAT_TEXT}"
+subtext1 = "${CAT_SUBTEXT1}"
+subtext0 = "${CAT_SUBTEXT0}"
+overlay2 = "${CAT_OVERLAY2}"
+overlay1 = "${CAT_OVERLAY1}"
+overlay0 = "${CAT_OVERLAY0}"
+surface2 = "${CAT_SURFACE2}"
+surface1 = "${CAT_SURFACE1}"
+surface0 = "${CAT_SURFACE0}"
+base = "${CAT_BASE}"
+mantle = "${CAT_MANTLE}"
+crust = "${CAT_CRUST}"
+
+# --- Catppuccin Latte ---
+[palettes.catppuccin_latte]
+rosewater = "${CAT_ROSEWATER}"
+flamingo = "${CAT_FLAMINGO}"
+pink = "${CAT_PINK}"
+mauve = "${CAT_MAUVE}"
+red = "${CAT_RED}"
+maroon = "${CAT_MAROON}"
+peach = "${CAT_PEACH}"
+yellow = "${CAT_YELLOW}"
+green = "${CAT_GREEN}"
+teal = "${CAT_TEAL}"
+sky = "${CAT_SKY}"
+sapphire = "${CAT_SAPPHIRE}"
+blue = "${CAT_BLUE}"
+lavender = "${CAT_LAVENDER}"
+text = "${CAT_TEXT}"
+subtext1 = "${CAT_SUBTEXT1}"
+subtext0 = "${CAT_SUBTEXT0}"
+overlay2 = "${CAT_OVERLAY2}"
+overlay1 = "${CAT_OVERLAY1}"
+overlay0 = "${CAT_OVERLAY0}"
+surface2 = "${CAT_SURFACE2}"
+surface1 = "${CAT_SURFACE1}"
+surface0 = "${CAT_SURFACE0}"
+base = "${CAT_BASE}"
+mantle = "${CAT_MANTLE}"
+crust = "${CAT_CRUST}"
+
+# --- Retrowave ---
+[palettes.retrowave]
+red = "${PAL_RED}"
+maroon = "${PAL_MAROON}"
+peach = "${PAL_PEACH}"
+yellow = "${PAL_YELLOW}"
+green = "${PAL_GREEN}"
+teal = "${PAL_TEAL}"
+sky = "${PAL_SKY}"
+sapphire = "${PAL_SAPPHIRE}"
+blue = "${PAL_BLUE}"
+lavender = "${PAL_LAVENDER}"
+mauve = "${PAL_MAUVE}"
+pink = "${PAL_PINK}"
+flamingo = "${PAL_ROSEWATER}"
+rosewater = "${PAL_ROSEWATER}"
+text = "${PAL_TEXT}"
+subtext1 = "${PAL_SUBTEXT}"
+subtext0 = "${PAL_SUBTEXT}"
+overlay2 = "${PAL_OVERLAY}"
+overlay1 = "${PAL_OVERLAY}"
+overlay0 = "${PAL_OVERLAY}"
+surface2 = "${PAL_SURFACE2}"
+surface1 = "${PAL_SURFACE1}"
+surface0 = "${PAL_SURFACE0}"
+base = "${PAL_BASE}"
+mantle = "${PAL_MANTLE}"
+crust = "${PAL_CRUST}"
+
+# --- Cyberpunk Neon ---
+[palettes.cyberpunk_neon]
+red = "${PAL_RED}"
+maroon = "${PAL_MAROON}"
+peach = "${PAL_PEACH}"
+yellow = "${PAL_YELLOW}"
+green = "${PAL_GREEN}"
+teal = "${PAL_TEAL}"
+sky = "${PAL_SKY}"
+sapphire = "${PAL_SAPPHIRE}"
+blue = "${PAL_BLUE}"
+lavender = "${PAL_LAVENDER}"
+mauve = "${PAL_MAUVE}"
+pink = "${PAL_PINK}"
+flamingo = "${PAL_ROSEWATER}"
+rosewater = "${PAL_ROSEWATER}"
+text = "${PAL_TEXT}"
+subtext1 = "${PAL_SUBTEXT}"
+subtext0 = "${PAL_SUBTEXT}"
+overlay2 = "${PAL_OVERLAY}"
+overlay1 = "${PAL_OVERLAY}"
+overlay0 = "${PAL_OVERLAY}"
+surface2 = "${PAL_SURFACE2}"
+surface1 = "${PAL_SURFACE1}"
+surface0 = "${PAL_SURFACE0}"
+base = "${PAL_BASE}"
+mantle = "${PAL_MANTLE}"
+crust = "${PAL_CRUST}"
+
+# --- Cyberpunk 2077 ---
+[palettes.cyberpunk_2077]
+red = "${PAL_RED}"
+maroon = "${PAL_MAROON}"
+peach = "${PAL_PEACH}"
+yellow = "${PAL_YELLOW}"
+green = "${PAL_GREEN}"
+teal = "${PAL_TEAL}"
+sky = "${PAL_SKY}"
+sapphire = "${PAL_SAPPHIRE}"
+blue = "${PAL_BLUE}"
+lavender = "${PAL_LAVENDER}"
+mauve = "${PAL_MAUVE}"
+pink = "${PAL_PINK}"
+flamingo = "${PAL_ROSEWATER}"
+rosewater = "${PAL_ROSEWATER}"
+text = "${PAL_TEXT}"
+subtext1 = "${PAL_SUBTEXT}"
+subtext0 = "${PAL_SUBTEXT}"
+overlay2 = "${PAL_OVERLAY}"
+overlay1 = "${PAL_OVERLAY}"
+overlay0 = "${PAL_OVERLAY}"
+surface2 = "${PAL_SURFACE2}"
+surface1 = "${PAL_SURFACE1}"
+surface0 = "${PAL_SURFACE0}"
+base = "${PAL_BASE}"
+mantle = "${PAL_MANTLE}"
+crust = "${PAL_CRUST}"
+
+# --- Synthwave '84 ---
+[palettes.synthwave_84]
+red = "${PAL_RED}"
+maroon = "${PAL_MAROON}"
+peach = "${PAL_PEACH}"
+yellow = "${PAL_YELLOW}"
+green = "${PAL_GREEN}"
+teal = "${PAL_TEAL}"
+sky = "${PAL_SKY}"
+sapphire = "${PAL_SAPPHIRE}"
+blue = "${PAL_BLUE}"
+lavender = "${PAL_LAVENDER}"
+mauve = "${PAL_MAUVE}"
+pink = "${PAL_PINK}"
+flamingo = "${PAL_ROSEWATER}"
+rosewater = "${PAL_ROSEWATER}"
+text = "${PAL_TEXT}"
+subtext1 = "${PAL_SUBTEXT}"
+subtext0 = "${PAL_SUBTEXT}"
+overlay2 = "${PAL_OVERLAY}"
+overlay1 = "${PAL_OVERLAY}"
+overlay0 = "${PAL_OVERLAY}"
+surface2 = "${PAL_SURFACE2}"
+surface1 = "${PAL_SURFACE1}"
+surface0 = "${PAL_SURFACE0}"
+base = "${PAL_BASE}"
+mantle = "${PAL_MANTLE}"
+crust = "${PAL_CRUST}"
+
+# --- Dracula ---
+[palettes.dracula]
+red = "${PAL_RED}"
+maroon = "${PAL_MAROON}"
+peach = "${PAL_PEACH}"
+yellow = "${PAL_YELLOW}"
+green = "${PAL_GREEN}"
+teal = "${PAL_TEAL}"
+sky = "${PAL_SKY}"
+sapphire = "${PAL_SAPPHIRE}"
+blue = "${PAL_BLUE}"
+lavender = "${PAL_LAVENDER}"
+mauve = "${PAL_MAUVE}"
+pink = "${PAL_PINK}"
+flamingo = "${PAL_ROSEWATER}"
+rosewater = "${PAL_ROSEWATER}"
+text = "${PAL_TEXT}"
+subtext1 = "${PAL_SUBTEXT}"
+subtext0 = "${PAL_SUBTEXT}"
+overlay2 = "${PAL_OVERLAY}"
+overlay1 = "${PAL_OVERLAY}"
+overlay0 = "${PAL_OVERLAY}"
+surface2 = "${PAL_SURFACE2}"
+surface1 = "${PAL_SURFACE1}"
+surface0 = "${PAL_SURFACE0}"
+base = "${PAL_BASE}"
+mantle = "${PAL_MANTLE}"
+crust = "${PAL_CRUST}"
+
+# --- Tokyo Night ---
+[palettes.tokyo_night]
+red = "${PAL_RED}"
+maroon = "${PAL_MAROON}"
+peach = "${PAL_PEACH}"
+yellow = "${PAL_YELLOW}"
+green = "${PAL_GREEN}"
+teal = "${PAL_TEAL}"
+sky = "${PAL_SKY}"
+sapphire = "${PAL_SAPPHIRE}"
+blue = "${PAL_BLUE}"
+lavender = "${PAL_LAVENDER}"
+mauve = "${PAL_MAUVE}"
+pink = "${PAL_PINK}"
+flamingo = "${PAL_ROSEWATER}"
+rosewater = "${PAL_ROSEWATER}"
+text = "${PAL_TEXT}"
+subtext1 = "${PAL_SUBTEXT}"
+subtext0 = "${PAL_SUBTEXT}"
+overlay2 = "${PAL_OVERLAY}"
+overlay1 = "${PAL_OVERLAY}"
+overlay0 = "${PAL_OVERLAY}"
+surface2 = "${PAL_SURFACE2}"
+surface1 = "${PAL_SURFACE1}"
+surface0 = "${PAL_SURFACE0}"
+base = "${PAL_BASE}"
+mantle = "${PAL_MANTLE}"
+crust = "${PAL_CRUST}"
+
+# --- Default (hardcoded fallback, Catppuccin Mocha values) ---
+[palettes.default]
+rosewater = "#f5e0dc"
+flamingo = "#f2cdcd"
+pink = "#f5c2e7"
+mauve = "#cba6f7"
+red = "#f38ba8"
+maroon = "#eba0ac"
+peach = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+teal = "#94e2d5"
+sky = "#89dceb"
+sapphire = "#74c7ec"
+blue = "#89b4fa"
+lavender = "#b4befe"
+text = "#cdd6f4"
+subtext1 = "#bac2de"
+subtext0 = "#a6adc8"
+overlay2 = "#9399b2"
+overlay1 = "#7f849c"
+overlay0 = "#6c7086"
+surface2 = "#585b70"
+surface1 = "#45475a"
+surface0 = "#313244"
+base = "#1e1e2e"
+mantle = "#181825"
+crust = "#11111b"

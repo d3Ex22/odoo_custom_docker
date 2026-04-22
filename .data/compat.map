@@ -1,0 +1,20 @@
+# =============================================================================
+# ODOO VERSION COMPATIBILITY MAP
+# =============================================================================
+# Read-only lookup table — do NOT edit manually.
+# Update this file only when official Odoo compatibility changes.
+#
+# Format (colon-separated, no spaces):
+#   odoo_version:default_python:compatible_python:default_postgres:compatible_postgres
+#
+# - def_*    : version used when building / recommended
+# - compat_* : all officially supported versions (comma-separated, newest first)
+# =============================================================================
+
+# odoo : def_py : compat_py                  : def_pg : compat_pg
+19.0   : 3.12   : 3.13,3.12,3.11,3.10        : 17     : 17,16,15,14,13
+18.0   : 3.12   : 3.13,3.12,3.11,3.10        : 17     : 17,16,15,14,13,12
+17.0   : 3.10   : 3.13,3.12,3.11,3.10        : 16     : 16,15,14,13,12
+16.0   : 3.10   : 3.12,3.11,3.10,3.9,3.8,3.7 : 15     : 15,14,13,12,11,10
+15.0   : 3.10   : 3.12,3.11,3.10,3.9,3.8,3.7 : 14     : 15,14,13,12,11,10
+14.0   : 3.8    : 3.10,3.9,3.8,3.7,3.6       : 13     : 13,12,11,10
