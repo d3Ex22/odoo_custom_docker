@@ -46,7 +46,16 @@ import_sql() {
     if [[ "$ext_lower" =~ \.dump$ ]]; then
         docker exec -i "$DB_CONTAINER" pg_restore -U "$DB_USER" -d "$dbname" --no-owner < "$sql_file" 2>/dev/null
     else
-        docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$dbname" < "$sql_file" >/dev/null 2>&1
+        # PG18 plain SQL dumps use inherited NOT NULL syntax unsupported on PG17
+        local import_file="$sql_file"
+        if grep -q 'CONSTRAINT ir_actions_name_not_null NOT NULL name,\|^[[:space:]]*NOT NULL name,$' "$sql_file" 2>/dev/null; then
+            import_file="${TMP_DIR}/.import_pg17.sql"
+            mkdir -p "$TMP_DIR"
+            sed -e '/CONSTRAINT ir_actions_name_not_null NOT NULL name,/d' \
+                -e '/^[[:space:]]*NOT NULL name,$/d' \
+                "$sql_file" > "$import_file"
+        fi
+        docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$dbname" -v ON_ERROR_STOP=0 < "$import_file" >/dev/null 2>&1
     fi
 }
 
@@ -119,7 +128,7 @@ help_sanitize() {
     echo "       clears API keys, sets neutralization flag. Requires Odoo container."
     echo ""
     printf "   ${CPRIMARY}ANONYMIZE (SQL)${RST}\n"
-    echo "       Clears partner emails, sets admin user login/password to admin/admin."
+    echo "       Replaces emails with safe test addresses (*.@test.test), admin/admin."
     echo ""
     printf "   ${CPRIMARY}FILE MODE (-f)${RST}\n"
     echo "       Imports into a temporary database, applies chosen steps, exports."
@@ -274,12 +283,46 @@ list_databases() {
 
 anonymize_db() {
     local DB="$1"
-    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB" -c "
-        UPDATE res_partner SET email = NULL WHERE email IS NOT NULL;
-        UPDATE res_users SET login = 'admin' WHERE id = 2;
-        UPDATE res_users SET password = 'admin' WHERE id = 2;
-        UPDATE res_users SET active = true WHERE id = 2;
-    " >/dev/null 2>&1
+    # test.test / example.com : domaines réservés (RFC 2606) — gardent les champs valides
+    # sans risque d'envoi vers de vrais clients (neutralize désactive aussi les serveurs mail).
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB" -v ON_ERROR_STOP=1 <<'EOSQL' >/dev/null 2>&1
+-- Partenaires : email unique par enregistrement
+UPDATE res_partner
+SET email = CASE
+    WHEN NOT COALESCE(active, true) THEN 'disabled@test.test'
+    WHEN is_company THEN 'company' || id::text || '@test.test'
+    ELSE 'partner' || id::text || '@test.test'
+END
+WHERE COALESCE(email, '') <> '';
+
+-- Utilisateurs : admin inchangé, logins type email -> adresses de test
+UPDATE res_users
+SET login = 'user' || id::text || '@test.test'
+WHERE id <> 2 AND login LIKE '%@%';
+
+UPDATE res_users SET login = 'admin' WHERE id = 2;
+UPDATE res_users SET password = 'admin' WHERE id = 2;
+UPDATE res_users SET active = true WHERE id = 2;
+
+-- Champs dérivés / messages (si présents selon version Odoo)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'res_partner' AND column_name = 'email_normalized'
+    ) THEN
+        UPDATE res_partner SET email_normalized = lower(email) WHERE email IS NOT NULL;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'mail_message' AND column_name = 'email_from'
+    ) THEN
+        UPDATE mail_message
+        SET email_from = 'noreply@test.test'
+        WHERE COALESCE(email_from, '') <> '' AND email_from NOT LIKE '%@test.test';
+    END IF;
+END $$;
+EOSQL
 }
 
 neutralize_db() {
@@ -297,7 +340,7 @@ sanitize_pick_ops() {
     fi
     echo "Select sanitization:"
     echo "  1) Neutralize only (Odoo: crons, mail, keys, …)"
-    echo "  2) Anonymize only (SQL: emails, admin/admin)"
+    echo "  2) Anonymize only (SQL: test emails, admin/admin)"
     echo "  3) Both (neutralize, then anonymize)"
     read -r -p "Choice [1-3]: " san_choice
     echo ""
@@ -326,7 +369,7 @@ sanitize_apply_to_db() {
     if $SAN_DO_ANON; then
         echo "Anonymizing '$db'..."
         anonymize_db "$db"
-        echo "✓ Anonymized (emails cleared, admin/admin)"
+        echo "✓ Anonymized (test@test.test emails, admin/admin)"
     fi
 }
 
@@ -630,8 +673,14 @@ case "$1" in
             SQL_FILE="$SELECTED_FILE"
         fi
         echo "Creating database '$DBNAME'..."
-        docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$DBNAME\";" 2>/dev/null
-        docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "CREATE DATABASE \"$DBNAME\" OWNER $DB_USER;"
+        if ! drop_db_force "$DBNAME"; then
+            echo "❌ Failed to drop existing database '$DBNAME'"
+            exit 1
+        fi
+        if ! docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DBNAME\" OWNER $DB_USER;"; then
+            echo "❌ Failed to create database '$DBNAME'"
+            exit 1
+        fi
         echo "Importing data..."
         import_sql "$SQL_FILE" "$DBNAME"
         if [ -n "$FILESTORE_FOUND" ]; then

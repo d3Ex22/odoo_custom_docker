@@ -5,6 +5,47 @@
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
+_odoo_upgrade_code_dirs=(
+    /mnt/odoo-src/odoo/upgrade_code
+    /opt/odoo/odoo/upgrade_code
+    /opt/venv/lib/python*/site-packages/odoo/upgrade_code
+    /opt/pyenv/versions/*/lib/python*/site-packages/odoo/upgrade_code
+)
+
+list_odoo_upgrade_scripts() {
+    local container="$1"
+    local dirs_shell
+    dirs_shell=$(printf ' "%s"' "${_odoo_upgrade_code_dirs[@]}")
+    docker exec "$container" bash -c "
+        shopt -s nullglob
+        dirs=(${dirs_shell})
+        declare -A seen=()
+        for dir in \"\${dirs[@]}\"; do
+            [ -d \"\$dir\" ] || continue
+            for f in \"\$dir\"/*.py; do
+                base=\$(basename \"\$f\" .py)
+                [[ \"\$base\" == __* ]] && continue
+                seen[\$base]=1
+            done
+        done
+        printf '%s\n' \"\${!seen[@]}\" | sort
+    " 2>/dev/null
+}
+
+resolve_odoo_upgrade_code_dir() {
+    local container="$1"
+    local dirs_shell
+    dirs_shell=$(printf ' "%s"' "${_odoo_upgrade_code_dirs[@]}")
+    docker exec "$container" bash -c "
+        shopt -s nullglob
+        dirs=(${dirs_shell})
+        for dir in \"\${dirs[@]}\"; do
+            [ -d \"\$dir\" ] && echo \"\$dir\" && exit 0
+        done
+        python3 -c \"import odoo; from pathlib import Path; p=Path(odoo.__path__[0])/'upgrade_code'; print(p if p.is_dir() else '')\" 2>/dev/null
+    " 2>/dev/null | head -1
+}
+
 show_help() {
     echo ""
     echo "upgrade-code - Migrate module code"
@@ -207,7 +248,7 @@ else
 
     # Odoo official - list scripts
     printf "  ${CPRIMARY}2. Odoo official upgrade_code${RST}\n"
-    ODOO_AVAILABLE=$(docker exec "$CONTAINER" bash -c "ls /opt/pyenv/versions/*/lib/python*/site-packages/odoo/upgrade_code/*.py 2>/dev/null | xargs -I{} basename {} .py | grep -v __" 2>/dev/null | sort -u)
+    ODOO_AVAILABLE=$(list_odoo_upgrade_scripts "$CONTAINER")
 
     if [ -n "$ODOO_AVAILABLE" ]; then
         printf "     Available scripts:\n"
@@ -385,7 +426,7 @@ if [ "$USE_CUSTOM" = true ] && [ ${#CUSTOM_SCRIPTS[@]} -gt 0 ]; then
     printf "${CACCENT}  ▶ Custom migration scripts${RST}\n"
     printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
 
-    ODOO_UPGRADE_DIR=$(docker exec "$CONTAINER" python3 -c "import odoo; print(odoo.__path__[0])" 2>/dev/null)/upgrade_code
+    ODOO_UPGRADE_DIR=$(resolve_odoo_upgrade_code_dir "$CONTAINER")
     ADDONS_PATH_ARG=$(echo "$SELECTED_PATHS" | tr ' ' ',')
 
     for script in "${CUSTOM_SCRIPTS[@]}"; do

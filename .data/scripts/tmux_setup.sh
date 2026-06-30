@@ -17,6 +17,7 @@ tmux set-option -g mouse on
 tmux set-option -g set-clipboard on
 tmux set-window-option -g history-limit "${TMUX_SCROLLBACK:-50000}"
 tmux set-option -ga terminal-overrides ",xterm-256color:Ss=\\E[%p1%d q:Se=\\E[2 q"
+tmux set-option -ga terminal-overrides ",xterm-256color:Ms=\\E]52;c%p1%.0s;%p2%s\\007"
 
 # --- Redirect clicks/scrolls on logo pane (index 0) to main pane ---
 tmux bind -T root MouseDown1Pane "if-shell '[ #{pane_index} -eq 0 ]' 'select-pane -t ${SESSION}:0.1' 'select-pane -t =; send-keys -M'"

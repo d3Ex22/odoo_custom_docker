@@ -6,8 +6,93 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 
 const RETRY_MS = 200;
 const RESIZE_DEBOUNCE_MS = 100;
+const CLIPBOARD_FLUSH_DELAYS_MS = [0, 30, 80, 180, 350];
+const CLIPBOARD_GESTURE_MS = 2500;
+const OSC52_RE = /\x1b\]52;[^;]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
 
-let terminal, fitAddon, ws, config, overlay, overlayTimer, resizeTimer;
+// Nerd Font Mono / Propo variants mis-render in xterm.js; keep plain "* Nerd Font" / "* NF".
+const NERD_FONT_CANDIDATES = [
+    "JetBrainsMono Nerd Font",
+    "FiraCode Nerd Font",
+    "Hack Nerd Font",
+    "0xProto Nerd Font",
+    "CaskaydiaCove Nerd Font",
+    "MesloLGS Nerd Font",
+    "MesloLGS NF",
+    "UbuntuMono Nerd Font",
+    "DejaVuSansMono Nerd Font",
+    "SourceCodePro Nerd Font",
+    "VictorMono Nerd Font",
+    "Monoid Nerd Font",
+    "GeistMono Nerd Font",
+    "Iosevka Nerd Font",
+    "ComicShannsMono Nerd Font",
+];
+
+function isAllowedSystemFont(family) {
+    const name = family.trim();
+    if (name === "monospace") return true;
+    if (/ mono$/i.test(name) || / mono /i.test(name)) return false;
+    return true;
+}
+
+function isAllowedNerdFontFamily(family) {
+    const name = family.trim();
+    if (!name.includes("Nerd Font") && !name.endsWith(" NF")) return false;
+    if (name === "Nerd Font" || name === "Nerd Font Mono" || name === "Nerd Font Propo") return false;
+    if (name.includes(" Nerd Font Mono") || name.includes(" Nerd Font Propo")) return false;
+    return name.endsWith(" Nerd Font") || name.endsWith(" NF");
+}
+
+function parseFontFamilyList(fontFamily) {
+    const parts = [];
+    const re = /"([^"]+)"|'([^']+)'|([^,]+)/g;
+    let match;
+    while ((match = re.exec(fontFamily)) !== null) {
+        parts.push((match[1] || match[2] || match[3]).trim());
+    }
+    return parts.filter(Boolean);
+}
+
+async function fontIsAvailable(family, size) {
+    const spec = `${size}px "${family}"`;
+    try {
+        await document.fonts.load(spec);
+        return document.fonts.check(spec);
+    } catch (_) {
+        return false;
+    }
+}
+
+async function discoverLocalNerdFonts() {
+    if (!window.queryLocalFonts) return [];
+    try {
+        const fonts = await window.queryLocalFonts();
+        return [...new Set(fonts.map((font) => font.family))].filter(isAllowedNerdFontFamily);
+    } catch (_) {
+        return [];
+    }
+}
+
+async function resolveFontFamily(fontFamily, fontSize) {
+    const parts = parseFontFamilyList(fontFamily);
+    const fallbacks = parts.filter(
+        (part) => !part.includes("Nerd Font") && !part.endsWith(" NF") && isAllowedSystemFont(part),
+    );
+    const fromConfig = parts.filter(isAllowedNerdFontFamily);
+    const discovered = await discoverLocalNerdFonts();
+    const candidates = [...new Set([...fromConfig, ...NERD_FONT_CANDIDATES, ...discovered])];
+
+    const available = [];
+    for (const family of candidates) {
+        if (await fontIsAvailable(family, fontSize)) available.push(family);
+    }
+
+    const stack = [...available, ...fallbacks];
+    return stack.map((family) => (family.includes(" ") ? `"${family}"` : family)).join(", ");
+}
+
+let terminal, fitAddon, ws, config, overlay, overlayTimer, resizeTimer, pendingClipboard, clipboardGestureUntil = 0;
 
 async function loadConfig() {
     while (true) {
@@ -55,6 +140,104 @@ function hideOverlay() {
     if (overlay) overlay.style.display = "none";
 }
 
+function decodeOsc52Base64(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+}
+
+function scanForOsc52(data) {
+    OSC52_RE.lastIndex = 0;
+    let match;
+    while ((match = OSC52_RE.exec(data)) !== null) {
+        try {
+            handleTmuxCopy(decodeOsc52Base64(match[1]));
+        } catch (_) {}
+    }
+}
+
+function handleTmuxCopy(text) {
+    if (!text) return;
+    pendingClipboard = text;
+    if (Date.now() < clipboardGestureUntil) {
+        copyToClipboard(text);
+    }
+}
+
+function copyWithCopyEvent(text) {
+    let copied = false;
+    const onCopy = (event) => {
+        event.clipboardData.setData("text/plain", text);
+        event.preventDefault();
+        copied = true;
+    };
+    document.addEventListener("copy", onCopy, { once: true, capture: true });
+    const ok = document.execCommand("copy");
+    document.removeEventListener("copy", onCopy, { capture: true });
+    return ok && copied;
+}
+
+function fallbackCopy(text) {
+    try {
+        return copyWithCopyEvent(text);
+    } catch (_) {
+        return false;
+    }
+}
+
+function copyToClipboard(text) {
+    if (!text) return Promise.resolve(false);
+
+    const onSuccess = () => {
+        pendingClipboard = null;
+        showOverlay(config.msgCopied, 400);
+        return true;
+    };
+    const onFailure = () => {
+        pendingClipboard = text;
+        showOverlay(config.msgCopyFailed || "Copy blocked — click terminal and press Cmd+C", 1500);
+        return false;
+    };
+
+    if (copyWithCopyEvent(text)) {
+        return Promise.resolve(onSuccess());
+    }
+
+    if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+            if (fallbackCopy(text)) return onSuccess();
+            return onFailure();
+        });
+    }
+
+    if (fallbackCopy(text)) return Promise.resolve(onSuccess());
+    return Promise.resolve(onFailure());
+}
+
+function flushPendingClipboard() {
+    if (pendingClipboard) copyToClipboard(pendingClipboard);
+}
+
+function scheduleClipboardFlush() {
+    for (const delay of CLIPBOARD_FLUSH_DELAYS_MS) {
+        setTimeout(flushPendingClipboard, delay);
+    }
+}
+
+function noteClipboardGesture() {
+    clipboardGestureUntil = Date.now() + CLIPBOARD_GESTURE_MS;
+}
+
+function setupTmuxClipboard() {
+    terminal.element.addEventListener("mousedown", noteClipboardGesture);
+    terminal.element.addEventListener("mouseup", () => {
+        noteClipboardGesture();
+        scheduleClipboardFlush();
+    });
+    terminal.element.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+
 function doFit() {
     if (!fitAddon || !terminal) return;
     try { fitAddon.fit(); } catch (_) {}
@@ -83,7 +266,11 @@ function connect() {
         terminal.focus();
     };
 
-    ws.onmessage = (e) => terminal.write(e.data);
+    ws.onmessage = (event) => {
+        const data = event.data;
+        if (typeof data === "string") scanForOsc52(data);
+        terminal.write(data);
+    };
 
     ws.onclose = async () => {
         showOverlay(config.msgReconnecting);
@@ -108,8 +295,10 @@ async function init() {
 
     await document.fonts.ready;
 
+    const fontFamily = await resolveFontFamily(config.fontFamily, config.fontSize);
+
     terminal = new Terminal({
-        fontFamily: config.fontFamily,
+        fontFamily,
         fontSize: config.fontSize,
         fontWeight: config.fontWeight,
         fontWeightBold: config.fontWeightBold,
@@ -122,23 +311,15 @@ async function init() {
     terminal.loadAddon(fitAddon);
     terminal.open(container);
 
-    try { terminal.loadAddon(new WebglAddon()); } catch (_) {}
+    setupTmuxClipboard();
     try { terminal.loadAddon(new ClipboardAddon()); } catch (_) {}
     try { terminal.loadAddon(new Unicode11Addon()); terminal.unicode.activeVersion = "11"; } catch (_) {}
+    if (!/Mac|iPhone|iPad/i.test(navigator.userAgent)) {
+        try { terminal.loadAddon(new WebglAddon()); } catch (_) {}
+    }
 
     terminal.onData(sendInput);
     terminal.onResize(() => sendResize());
-
-    terminal.onSelectionChange(() => {
-        const sel = terminal.getSelection();
-        if (!sel) return;
-        const write = navigator.clipboard && navigator.clipboard.writeText
-            ? navigator.clipboard.writeText(sel)
-            : new Promise((_, reject) => reject());
-        write
-            .then(() => { terminal.clearSelection(); showOverlay(config.msgCopied, 400); })
-            .catch(() => {});
-    });
 
     doFit();
 

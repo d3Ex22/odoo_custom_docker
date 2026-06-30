@@ -97,6 +97,7 @@ services:
       # --- Addons ---
       - ${ADDONS_PATH}:/mnt/extra-addons:rw                                                    # Custom addons (from ADDONS_PATH)
       - ${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:/mnt/enterprise-addons:rw  # Enterprise addons (empty folder if not set)
+      - ${ODOO_PATH:-./.data/volumes/.odoo_placeholder}:/mnt/odoo-src:ro                            # Odoo source — upgrade_code scripts (upgrade-code command)
       # --- Persistent data ---
       - ./.data/volumes/odoo-container/odoo:/var/lib/odoo:rw                                   # Odoo data
       - ./.data/volumes/odoo-container/cache:/var/odoo/cache:rw                                # Runtime cache (module list, requirements hash)
@@ -113,6 +114,7 @@ services:
       - USER=odoo
       - PASSWORD=odoo
       - ENTERPRISE_PATH=${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder} # Needed for rebuild command
+      - ODOO_PATH=${ODOO_PATH:-./.data/volumes/.odoo_placeholder}
       - ADDONS_PATH=${ADDONS_PATH} # Needed for rebuild command
       - SELECTED_DB=${SELECTED_DB}
       - ODOO_IOT_BOX=${ODOO_IOT_BOX:-false}

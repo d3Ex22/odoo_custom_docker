@@ -143,7 +143,12 @@ export WEBTERM_CMD="tmux attach-session -t logs"
 export WEBTERM_TITLE="Odoo Logs"
 source /usr/local/bin/webterm_env.sh
 
-node /opt/web-terminal/server.js &
+(
+    while true; do
+        node /opt/web-terminal/server.js || true
+        sleep 1
+    done
+) &
 
 # ============================================================================
 # Keep the container alive and forward signals to child processes.

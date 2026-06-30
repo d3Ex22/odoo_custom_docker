@@ -34,6 +34,11 @@ source "$_UTILS_THEME_CONF" 2>/dev/null
 
 source "${_PROJECT_ROOT}/.data/scripts/hex_to_ansi.sh"
 
+# Non-root utils shell: docker.sock is often root:root (Docker Desktop)
+if [ "$(id -u)" -ne 0 ] && ! docker info >/dev/null 2>&1; then
+    docker() { sudo docker "$@"; }
+fi
+
 build_odoo_cmd() {
     local modules="${1:-}"
     local cmd="odoo -c /etc/odoo/odoo.conf"
@@ -50,18 +55,28 @@ odoo_pane_pty() {
 
 stop_odoo() {
     local pane="${ODOO_TMUX_SESSION}:0.1"
-    local pid h tty
+    local dead pid h tty
+    # No tmux session yet → nothing to stop (treat as success).
+    docker exec "$ODOO_CONTAINER" tmux has-session -t "$ODOO_TMUX_SESSION" 2>/dev/null || return 0
+    # Pane already dead (Odoo previously stopped, remain-on-exit keeps it) →
+    # its pid/tty are stale; do not touch them (avoids writing to a defunct tty).
+    dead=$(docker exec "$ODOO_CONTAINER" tmux display-message -t "$pane" -p '#{pane_dead}' 2>/dev/null)
+    [ "$dead" = "1" ] && return 0
     pid=$(docker exec "$ODOO_CONTAINER" tmux display-message -t "$pane" -p '#{pane_pid}' 2>/dev/null)
-    [ -z "$pid" ] && return 1
+    [ -z "$pid" ] && return 0
     h=$(docker exec "$ODOO_CONTAINER" tmux display-message -t "$pane" -p '#{pane_height}' 2>/dev/null)
     tty=$(docker exec "$ODOO_CONTAINER" tmux display-message -t "$pane" -p '#{pane_tty}' 2>/dev/null)
-    [ -n "$tty" ] && docker exec "$ODOO_CONTAINER" bash -c "printf '%0.s\n' \$(seq 1 ${h:-50}) > $tty"
+    # Clear the visible pane; ignore errors if the tty is already gone.
+    [ -n "$tty" ] && docker exec "$ODOO_CONTAINER" bash -c "printf '%0.s\n' \$(seq 1 ${h:-50}) > $tty" 2>/dev/null
     docker exec "$ODOO_CONTAINER" kill -9 "$pid" 2>/dev/null
+    return 0
 }
 
 run_odoo_script() {
     docker exec "$ODOO_CONTAINER" chmod +x /tmp/.odoo_runner.sh
-    docker exec "$ODOO_CONTAINER" tmux respawn-pane -t "${ODOO_TMUX_SESSION}:0.1" "bash /tmp/.odoo_runner.sh"
+    # -k forces a respawn whether the pane is alive or dead. After 'stop' the
+    # pane is dead (remain-on-exit); without -k respawn-pane fails to revive it.
+    docker exec "$ODOO_CONTAINER" tmux respawn-pane -k -t "${ODOO_TMUX_SESSION}:0.1" "bash /tmp/.odoo_runner.sh"
 }
 
 expand_modules() {
@@ -157,6 +172,15 @@ db_exists() {
     result=$(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -tAc \
         "SELECT 1 FROM pg_database WHERE datname = '$dbname';" 2>/dev/null)
     [ "$result" = "1" ]
+}
+
+drop_db_force() {
+    local dbname="$1"
+    [ -z "$dbname" ] && return 1
+    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbname' AND pid <> pg_backend_pid();" >/dev/null
+    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+        "DROP DATABASE IF EXISTS \"$dbname\";"
 }
 
 check_compat() {

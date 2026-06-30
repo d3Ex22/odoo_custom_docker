@@ -11,7 +11,7 @@ const CMD_ARGS = CMD_PARTS.slice(1);
 
 const CONFIG = JSON.stringify({
     title: process.env.WEBTERM_TITLE || "Terminal",
-    fontFamily: process.env.WEBTERM_FONT_FAMILY || "monospace",
+    fontFamily: process.env.WEBTERM_FONT_FAMILY || '"JetBrainsMono Nerd Font", Consolas, Menlo, Ubuntu, monospace',
     fontSize: parseInt(process.env.WEBTERM_FONT_SIZE || "14"),
     fontWeight: parseInt(process.env.WEBTERM_FONT_WEIGHT || "400"),
     fontWeightBold: parseInt(process.env.WEBTERM_FONT_WEIGHT_BOLD || "700"),
@@ -20,6 +20,7 @@ const CONFIG = JSON.stringify({
     msgConnecting: process.env.WEBTERM_MSG_CONNECTING || "Connecting...",
     msgReconnecting: process.env.WEBTERM_MSG_RECONNECTING || "Reconnecting...",
     msgCopied: process.env.WEBTERM_MSG_COPIED || "Copied",
+    msgCopyFailed: process.env.WEBTERM_MSG_COPY_FAILED || "Copy blocked — release mouse or press Cmd+C",
     overlayColor: process.env.WEBTERM_OVERLAY_COLOR || "#aaaaaa",
     overlayBg: process.env.WEBTERM_OVERLAY_BG || "rgba(0, 0, 0, 0.7)",
 });
@@ -61,13 +62,17 @@ function serveStatic(req, res) {
     }
 
     const ext = path.extname(filePath);
+    const headers = { "Content-Type": MIME[ext] || "application/octet-stream" };
+    if (ext === ".js" || ext === ".html") {
+        headers["Cache-Control"] = "no-cache";
+    }
     fs.readFile(filePath, (err, data) => {
         if (err) {
             res.writeHead(404);
             res.end("Not found");
             return;
         }
-        res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+        res.writeHead(200, headers);
         res.end(data);
     });
 }
@@ -100,8 +105,11 @@ wss.on("connection", (ws) => {
             proc.write(raw.toString().replace(DA_RE, ""));
             return;
         }
-        if (msg.type === "input") proc.write(msg.data.replace(DA_RE, ""));
-        else if (msg.type === "resize") proc.resize(msg.cols, msg.rows);
+        if (msg.type === "input" && typeof msg.data === "string") {
+            proc.write(msg.data.replace(DA_RE, ""));
+        } else if (msg.type === "resize" && msg.cols > 0 && msg.rows > 0) {
+            proc.resize(msg.cols, msg.rows);
+        }
     });
 
     ws.on("close", () => {

@@ -186,7 +186,32 @@ _set_cmd() {
     esac
 }
 
+_i18n_export_cmd() {
+    if [[ "${words[CURRENT-1]}" == (-d|--database) ]]; then
+        local -a dbs
+        dbs=(${(f)"$(_get_databases)"})
+        _describe 'database' dbs
+    elif [[ "${words[CURRENT]}" == -* ]]; then
+        local -a opts
+        opts=(
+            '-d:Database name'
+            '--database:Database name'
+            '-l:Language code'
+            '--language:Language code'
+            '-a:Export all active languages'
+            '--all-langs:Export all active languages'
+            '--pot:Export template POT file'
+            '-h:Show help'
+            '--help:Show help'
+        )
+        _describe 'option' opts
+    else
+        _update
+    fi
+}
+
 compdef _update update u
+compdef _i18n_export_cmd i18n-export i18n
 compdef _database database db
 compdef _shell_cmd shell
 compdef _psql_cmd psql

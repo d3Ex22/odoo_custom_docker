@@ -90,6 +90,11 @@ fi
 find /home/utils/odoo_custom_docker/.data/scripts/commands -maxdepth 1 -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null
 mkdir -p /var/shared && chmod 777 /var/shared 2>/dev/null
 
+# utils shell is non-root; allow docker CLI from db/u/rebuild/etc.
+if [ -S /var/run/docker.sock ]; then
+    chmod 666 /var/run/docker.sock 2>/dev/null || true
+fi
+
 
 # ============================================================================
 # Generate the welcome screen.
@@ -119,6 +124,7 @@ printf "     ${CPRIMARY}     ${RST}status                        ${CPRIMARY}Cont
 echo ""
 echo "    Tools:"
 printf "     ${CPRIMARY}     ${RST}check_versions                ${CPRIMARY}Installed versions            ${RST}\n"
+printf "     ${CPRIMARY}     ${RST}i18n-export [module]          ${CPRIMARY}Export module translations    ${RST}\n"
 printf "     ${CPRIMARY}     ${RST}grok                          ${CPRIMARY}Ngrok tunnel                  ${RST}\n"
 printf "     ${CPRIMARY}     ${RST}help                          ${CPRIMARY}Show this help                ${RST}\n"
 printf "     ${CPRIMARY}     ${RST}pip <command>                 ${CPRIMARY}Pip in Odoo container         ${RST}\n"
@@ -142,9 +148,11 @@ if ! grep -qF "$MARKER2" "$ZSHRC" 2>/dev/null; then
     {
         echo "$MARKER2"
         echo "printf '\\033[${DECSCUSR} q'"
-        echo 'clear'
+        echo 'command clear'
         echo '[ -f /home/utils/.welcome ] && source /home/utils/.welcome'
     } >> "$ZSHRC"
+else
+    sed -i '/^clear$/c\command clear' "$ZSHRC" 2>/dev/null || true
 fi
 
 # ============================================================================

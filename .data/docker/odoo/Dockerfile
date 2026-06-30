@@ -38,8 +38,8 @@ RUN apt-get update && \
         node-less \
         npm \
         postgresql-client \
-        tini \
-        tmux && \
+        tmux \
+        tini && \
     locale-gen en_US.UTF-8 && \
     if [ "$ODOO_VERSION" != "14.0" ] && [ "$ODOO_VERSION" != "15.0" ]; then \
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libmagic1; \
