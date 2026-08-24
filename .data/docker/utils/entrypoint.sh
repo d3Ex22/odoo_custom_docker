@@ -124,7 +124,7 @@ printf "     ${CPRIMARY}     ${RST}status                        ${CPRIMARY}Cont
 echo ""
 echo "    Tools:"
 printf "     ${CPRIMARY}     ${RST}check_versions                ${CPRIMARY}Installed versions            ${RST}\n"
-printf "     ${CPRIMARY}     ${RST}i18n-export [module]          ${CPRIMARY}Export module translations    ${RST}\n"
+printf "     ${CPRIMARY}     ${RST}translation [module|--all]    ${CPRIMARY}Fresh-export / replace fr.po    ${RST}\n"
 printf "     ${CPRIMARY}     ${RST}grok                          ${CPRIMARY}Ngrok tunnel                  ${RST}\n"
 printf "     ${CPRIMARY}     ${RST}help                          ${CPRIMARY}Show this help                ${RST}\n"
 printf "     ${CPRIMARY}     ${RST}pip <command>                 ${CPRIMARY}Pip in Odoo container         ${RST}\n"

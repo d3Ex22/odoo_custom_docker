@@ -68,9 +68,10 @@ shell()    { /home/utils/odoo_custom_docker/.data/scripts/commands/shell.sh "$@"
 psql()     { /home/utils/odoo_custom_docker/.data/scripts/commands/psql.sh "$@"; }
 migrate()  { /home/utils/odoo_custom_docker/.data/scripts/commands/migrate.sh "$@"; }
 rebuild()  { /home/utils/odoo_custom_docker/.data/scripts/commands/rebuild.sh "$@"; }
-_i18n_export_fn() { /home/utils/odoo_custom_docker/.data/scripts/commands/i18n-export.sh "$@"; }
-alias i18n-export='noglob _i18n_export_fn'
-alias i18n='noglob _i18n_export_fn'
+_translation_fn() { /home/utils/odoo_custom_docker/.data/scripts/commands/translation.sh "$@"; }
+alias translation='noglob _translation_fn'
+alias i18n-export='noglob _translation_fn'   # legacy
+alias i18n='noglob _translation_fn'          # legacy
 
 # -----------------------------------------------------------------------
 # Commands — aliases (no completion needed)
