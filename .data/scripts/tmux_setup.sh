@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Shared tmux session configuration.
+# Shared tmux session configuration (colors: TMUX_* from lib/theme.sh).
 # Called from both odoo and utils entrypoints after creating the tmux session.
 #
 # Usage: tmux_setup.sh <session_name> <logo_height> <status_left_cmd> [iot_pane_cols]
@@ -15,7 +15,6 @@ IOT_PANE_COLS="${4:-}"
 # --- Input & clipboard ---
 tmux set-option -g mouse on
 tmux set-option -g set-clipboard on
-tmux set-window-option -g history-limit "${TMUX_SCROLLBACK:-50000}"
 tmux set-option -ga terminal-overrides ",xterm-256color:Ss=\\E[%p1%d q:Se=\\E[2 q"
 tmux set-option -ga terminal-overrides ",xterm-256color:Ms=\\E]52;c%p1%.0s;%p2%s\\007"
 
@@ -28,8 +27,8 @@ tmux bind -T root MouseDragEnd1Pane "if-shell '[ #{pane_index} -eq 0 ]' '' 'copy
 tmux unbind -T root MouseDrag1Border
 
 # --- Pane & window styles ---
-tmux set-option -g pane-border-style        "fg=${TMUX_BORDER_FG},bg=${TMUX_BORDER_BG}"
-tmux set-option -g pane-active-border-style "fg=${TMUX_BORDER_FG},bg=${TMUX_BORDER_BG}"
+tmux set-option -g pane-border-style        "fg=${TMUX_BORDER},bg=${TMUX_BG}"
+tmux set-option -g pane-active-border-style "fg=${TMUX_BORDER},bg=${TMUX_BG}"
 tmux set-option -g window-style             "bg=${TMUX_BG},fg=${TMUX_FG}"
 tmux set-option -g window-active-style      "bg=${TMUX_BG},fg=${TMUX_FG}"
 
@@ -48,9 +47,12 @@ tmux set-option -g status-position   bottom
 tmux set-option -g status-style      "bg=${TMUX_STATUS_BG} fg=${TMUX_STATUS_FG}"
 tmux set-option -g status-interval   1
 tmux set-option -g status-left-length  80
-tmux set-option -g status-right-length 40
+tmux set-option -g status-right-length 100
 tmux set-option -g status-justify    centre
 tmux set-option -g window-status-current-format ""
 tmux set-option -g window-status-format         ""
 tmux set-option -g status-left  "$STATUS_LEFT_CMD"
-tmux set-option -g status-right "#[fg=${TMUX_STATUS_FG}]#(TZ=Europe/Paris date '+%%d/%%m %%H:%%M:%%S')"
+# Left: versions / rebuild alerts, right: service pills (MCP, ODOO, ENT, DB,
+# active database), both written by the status loop (status.py), then
+# the clock
+tmux set-option -g status-right "#(cat /var/shared/.tmux_status_right 2>/dev/null)#[fg=${TMUX_STATUS_FG}]#(TZ=${TERMINAL_TZ:-UTC} date '+%%d/%%m %%H:%%M:%%S')"

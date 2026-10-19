@@ -22,7 +22,7 @@ def upgrade(file_manager: FileManager):
     # Patterns to remove store=True
     # Case 1: ", store=True)" at the end
     store_end = re.compile(r',\s*store\s*=\s*True(\s*\))')
-    # Case 2: ", store=True," in the middle  
+    # Case 2: ", store=True," in the middle
     store_middle = re.compile(r',\s*store\s*=\s*True\s*,')
     # Case 3: "(store=True, " at the start
     store_start = re.compile(r'(\(\s*)store\s*=\s*True\s*,\s*')
@@ -37,7 +37,7 @@ def upgrade(file_manager: FileManager):
 
         lines = content.split('\n')
         new_lines = []
-        
+
         for line in lines:
             # Only process lines that have both related= and store=True
             if 'related=' in line and 'store=True' in line:

@@ -1,54 +1,54 @@
 #!/bin/bash
 # ============================================================================
-# start - Start Odoo process
+# start - Start the Odoo process (if stopped)
 # ============================================================================
-# Usage: start [-h|--help]
+# Usage: start [-h|--help] [-w|--wait]
 # Alias: s
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 show_help() {
-    echo ""
-    echo "start - Start Odoo process"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       start"
-    echo "       s"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Starts Odoo in its tmux pane with full configuration:"
-    echo "       SELECTED_DB, ODOO_ARGS, and ODOO_UPDATE from .env"
-    echo ""
-    printf "   ${CPRIMARY}CONFIGURATION${RST} (from .env)\n"
-    echo "       SELECTED_DB    Database to use"
-    echo "       ODOO_ARGS      Additional Odoo arguments"
-    echo "       ODOO_UPDATE    Module(s) to update on start"
-    echo ""
+    h_name "start (s)" "Start the Odoo process"
+    h_sec "USAGE"
+    h_use "s [-w]"
+    h_sec "OPTIONS"
+    h_opt "-w, --wait" "Wait until Odoo is ready and report errors"
+    h_sec "DESCRIPTION"
+    h_text "Starts Odoo in its tmux pane with SELECTED_DB, ODOO_ARGS and"
+    h_text "ODOO_UPDATE (-u) from .env. Does nothing if Odoo already runs."
+    h_global
+    h_end
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
+WAIT=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) show_help; exit 0 ;;
+        -w|--wait) WAIT=true; shift ;;
+        *) die "Unknown option: $1" "See: s --help" ;;
+    esac
+done
+
+require_odoo_container
+if odoo_process_running; then
+    ui_ok "Odoo is already running"
+    ui_note "r to restart, u <module> to update"
     exit 0
 fi
 
-if docker exec "$ODOO_CONTAINER" pgrep -x odoo >/dev/null 2>&1; then
-    echo "Odoo is already running"
-    exit 0
+MODULES=""
+if [ -n "${ODOO_UPDATE:-}" ]; then
+    refresh_modules_cache "$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)"
+    MODULES=$(expand_modules "$ODOO_UPDATE")
+    [ -n "$MODULES" ] && ui_note "ODOO_UPDATE=${MODULES}"
 fi
 
-ADDON_PATHS=$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)
+ui_step "Starting Odoo..."
+launch_odoo "$MODULES" || die "Failed to start Odoo"
+ui_ok "Odoo started"
 
-[ -n "$ODOO_UPDATE" ] && ODOO_UPDATE=$(expand_modules "$ODOO_UPDATE")
-ODOO_CMD=$(build_odoo_cmd "$ODOO_UPDATE")
-
-echo "Starting Odoo..."
-
-docker exec -i "$ODOO_CONTAINER" tee /tmp/.odoo_runner.sh > /dev/null << RUNNER_EOF
-#!/bin/bash
-/usr/local/bin/odoo_header.sh "$ODOO_CMD" "$ADDON_PATHS"
-exec $ODOO_CMD
-RUNNER_EOF
-run_odoo_script
-
-echo "✓ Odoo started"
+$WAIT && exec bash "${_PROJECT_ROOT}/.data/scripts/internal/logs.sh" --wait
+exit 0

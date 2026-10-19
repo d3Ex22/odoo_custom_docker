@@ -1,4 +1,4 @@
-"""Rename message_post_with_view to message_post_with_source and values= to render_values= (v17.0)."""
+"""Rename message_post_with_view to message_post_with_source and values= to render_values= (renamed in 17.0, old name removed in 19.0)."""
 from __future__ import annotations
 
 import re
@@ -34,7 +34,7 @@ def upgrade(file_manager: FileManager):
 
         # Step 2: Replace values= with render_values= only within method calls
         positions = [(m.start(), m.end()) for m in re.finditer(r'\.message_post_with_source\(', new_content)]
-        
+
         result = new_content
         offset = 0
 

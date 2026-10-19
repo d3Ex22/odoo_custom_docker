@@ -78,24 +78,19 @@ fi
 # ============================================================================
 MAJOR_VERSION=$(echo "${ODOO_VERSION}" | cut -d'.' -f1)
 if [ -z "$MAJOR_VERSION" ] || [ "$MAJOR_VERSION" -lt 19 ] 2>/dev/null; then
-    echo ""
-    echo "============================================================"
-    echo "  WARNING: ODOO_IOT_BOX=true but Odoo ${ODOO_VERSION} < 19.0"
-    echo "  IoT Box mode requires Odoo 19.0 or higher."
-    echo "  Skipping IoT setup."
-    echo "============================================================"
-    echo ""
+    printf '\nWARNING: ODOO_IOT_BOX=true but Odoo %s < 19.0 — IoT Box mode needs 19.0+, skipped\n\n' "${ODOO_VERSION}"
     exit 0
 fi
 
 # ============================================================================
-# Critical Python deps (imported at iot_drivers module load time)
+# Python deps imported when iot_drivers loads: built in the image (Dockerfile,
+# IoT block); only a missing one is installed here (pure-Python wheels).
 # ============================================================================
-uv pip install netifaces 2>&1 | tail -1
-if ! python3 -c "import netifaces" 2>/dev/null; then
-    uv pip install netifaces2 2>&1 | tail -1
-fi
-uv pip install schedule websocket-client python-escpos PyKCS11 evdev pycups 2>&1 | tail -1
+for mod in netifaces schedule websocket escpos PyKCS11 evdev cups; do
+    python3 -c "import $mod" 2>/dev/null && continue
+    case "$mod" in netifaces) pkg=netifaces2 ;; websocket) pkg=websocket-client ;; escpos) pkg=python-escpos ;; cups) pkg=pycups ;; *) pkg="$mod" ;; esac
+    uv pip install "$pkg" 2>&1 | tail -1
+done
 echo "IoT: core Python deps ready"
 
 # ============================================================================

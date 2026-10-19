@@ -6,30 +6,22 @@
 
 services:
   # -----------------------------------------------------------------------------
-  # TRAEFIK — Reverse Proxy
+  # ROUTING — shared proxy (no traefik service here)
   # -----------------------------------------------------------------------------
-  # Routes incoming HTTP traffic to the correct container based on hostname.
-  # All URLs are defined in .env (ODOO_URL, UTILS_URL, LOGS_URL).
+  # One Traefik + hub stack (.data/proxy/, project 'odoo_proxy') serves every
+  # project of the machine; the utils entrypoint starts it when missing, odoo
+  # and utils sit on its network (see NETWORKS). Several projects run side by side:
   #
-  # Dashboard: http://localhost:8080  (insecure mode, dev only)
+  #   http://odoo.docker.localhost                hub: tabs of the running projects
+  #   http://${COMPOSE_PROJECT_NAME}.odoo.docker.localhost     this project's Odoo
+  #   http://${COMPOSE_PROJECT_NAME}.logs.docker.localhost     live logs
+  #   http://${COMPOSE_PROJECT_NAME}.utils.docker.localhost    utils terminal
+  #   http://${COMPOSE_PROJECT_NAME}.mcp.docker.localhost/mcp  MCP server (AI agents)
+  #   http://${COMPOSE_PROJECT_NAME}.mail.docker.localhost     caught outgoing mails (Mailpit)
+  #   http://traefik.docker.localhost                           Traefik dashboard
+  #
+  # COMPOSE_PROJECT_NAME is the folder name unless set in .env.
   # -----------------------------------------------------------------------------
-  traefik:
-    container_name: ${COMPOSE_PROJECT_NAME}_traefik
-    image: traefik:latest
-    command:
-      - "--api.insecure=true"                          # Enable dashboard without auth (dev only)
-      - "--providers.docker"                           # Auto-discover containers via Docker labels
-      - "--entrypoints.http.address=:80"               # Listen on port 80
-      - "--serversTransport.insecureSkipVerify=true"   # Allow self-signed certs on backends
-    ports:
-      - "80:80"       # HTTP traffic
-      - "8080:8080"   # Traefik dashboard
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw   # Required for Docker provider auto-discovery
-    networks:
-      - network
-    restart: ${RESTART_ON_FAIL}
-    stop_grace_period: ${FORCE_STOP_DELAY}
 
 
   # -----------------------------------------------------------------------------
@@ -38,11 +30,16 @@ services:
   # Custom image built from the official postgres image.
   # Adds the pgvector extension (required by Odoo 17+).
   #
+  # Images are tagged by version (odoo-env/db:17) and shared by every project:
+  # switching project never rebuilds an image that already exists (the ones
+  # unused for IMAGE_RETENTION_DAYS are removed automatically).
+  #
   # Data is persisted in ./.data/volumes/db-container/pgdata.
   # Database backups/restores go through ./db_files/.
   # -----------------------------------------------------------------------------
   db:
     container_name: ${COMPOSE_PROJECT_NAME}_db
+    image: odoo-env/db:${POSTGRES_VERSION}
     build:
       context: .
       dockerfile: .data/docker/db/Dockerfile
@@ -69,6 +66,11 @@ services:
   # This allows ~2s restarts (kill + relaunch process) without rebooting container.
   # A web terminal serves the tmux session directly (no docker exec).
   #
+  # Image tagged by stack and Dockerfile revision (odoo-env/odoo:19.0-py3.12-
+  # latest-a1b2c3d4), shared by every project on the same versions and files.
+  # 'latest' = the nightly of the day the image was built; 'rebuild -n'
+  # refreshes it. Entrypoint and scripts are mounted: no rebuild to edit them.
+  #
   # The entrypoint:
   #   1. Generates addons_path from mounted folders (scanning subfolders if enabled)
   #   2. Installs Python requirements from addons (if changed)
@@ -76,11 +78,12 @@ services:
   #   4. Starts Odoo in a persistent tmux session
   #   5. Launches the web terminal to expose the session via browser
   #
-  # Odoo:  http://${ODOO_URL}
-  # Logs:  http://${LOGS_URL}
+  # Odoo:  http://${COMPOSE_PROJECT_NAME}.odoo.docker.localhost
+  # Logs:  http://${COMPOSE_PROJECT_NAME}.logs.docker.localhost
   # -----------------------------------------------------------------------------
   odoo:
     container_name: ${COMPOSE_PROJECT_NAME}_odoo
+    image: odoo-env/odoo:${ODOO_VERSION}-py${PYTHON_VERSION}-${ODOO_BUILD}-${ODOO_IMAGE_REV:-dev}
     build:
       context: .
       dockerfile: .data/docker/odoo/Dockerfile
@@ -91,9 +94,11 @@ services:
     volumes:
       # --- Configuration ---
       - ./.config/odoo.conf:/etc/odoo/odoo.conf                                                # Odoo server config
-      - ./.config:/etc/config:ro                                                               # Theme, Starship template and other config files
-      - ./.data/themes:/etc/themes:ro                                                            # Shared theme definitions (palette + derived colors)
-      - ./.env:/home/odoo/.env:ro                                                              # Passed to entrypoint for runtime settings (required by 'rebuild' command)
+      - ./.config/terminal.conf:/etc/config/terminal.conf:ro                                   # Web terminal font / cursor / scrollback
+      - ./.env:/home/odoo/.env:ro                                                              # Runtime settings read by the entrypoint and the env scripts
+      - ./.data/docker/odoo:/opt/env/odoo:ro                                                   # Entrypoint (mounted: editing it needs no rebuild)
+      - ./.data/scripts:/opt/env/scripts:rw                                                    # Env scripts, linked into /usr/local/bin by the entrypoint (rw: chmod +x)
+      - ./.data/web-terminal:/opt/web-terminal:ro                                              # Logs web terminal (xterm.js bundle + Python server, mounted: no rebuild)
       # --- Addons ---
       - ${ADDONS_PATH}:/mnt/extra-addons:rw                                                    # Custom addons (from ADDONS_PATH)
       - ${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:/mnt/enterprise-addons:rw  # Enterprise addons (empty folder if not set)
@@ -101,9 +106,9 @@ services:
       # --- Persistent data ---
       - ./.data/volumes/odoo-container/odoo:/var/lib/odoo:rw                                   # Odoo data
       - ./.data/volumes/odoo-container/cache:/var/odoo/cache:rw                                # Runtime cache (module list, requirements hash)
-      - ./.data/volumes/shared:/var/shared:ro                                                  # Shared data from utils (version cache for tmux status bar)
+      - ./.data/volumes/shared:/var/shared:ro                                                  # State written by utils: status bar files, status.json, setup flag, project name
       # --- IoT virtual printers ---
-      - ./.data/volumes/virtual-printer:/var/spool/virtual-printer:rw           # Virtual printer output (PDF/ZPL renders)
+      - ./.data/volumes/virtual-printer:/var/spool/virtual-printer:rw                          # Virtual printer output (PDF/ZPL renders)
       # --- Dev tooling ---
       - ./.data/volumes/odoo-container/pre-commit:/home/odoo/.cache/pre-commit:rw              # pre-commit cache (persisted across rebuilds, needed by 'pre-commit' and 'upgrade-code' commands)
       - ./.data/migration_scripts:/opt/migration_scripts:ro                                    # Scripts run via 'upgrade-code' command
@@ -113,26 +118,40 @@ services:
       - PORT=5432
       - USER=odoo
       - PASSWORD=odoo
-      - ENTERPRISE_PATH=${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder} # Needed for rebuild command
+      - ENTERPRISE_PATH=${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}   # resolved defaults (the scripts also source .env)
       - ODOO_PATH=${ODOO_PATH:-./.data/volumes/.odoo_placeholder}
-      - ADDONS_PATH=${ADDONS_PATH} # Needed for rebuild command
+      - ADDONS_PATH=${ADDONS_PATH}
       - SELECTED_DB=${SELECTED_DB}
       - ODOO_IOT_BOX=${ODOO_IOT_BOX:-false}
       - ODOO_VERSION=${ODOO_VERSION}
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}   # 'mail' → smtp to the Mailpit container (entrypoint)
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}   # primary colour of the logs terminal (lib/theme.sh)
+      - PROJECT_COLOR=${PROJECT_COLOR:-}
+    ports:
+      - "${DEBUGPY_PORT:+${DEBUGPY_PORT}:}5678"   # debugpy (see 'debug'): random host port unless DEBUGPY_PORT is set
     stdin_open: true
     tty: true
     networks:
       - network
-    labels:
+      - proxy
+    labels:   # routers named <project>-<view>: the hub lists projects from them
       - "traefik.enable=true"
-      - "traefik.http.routers.odoo.rule=Host(`${ODOO_URL}`)"
-      - "traefik.http.routers.odoo.entrypoints=http"
-      - "traefik.http.routers.odoo.service=odoo"
-      - "traefik.http.services.odoo.loadbalancer.server.port=8069"
-      - "traefik.http.routers.logs.rule=Host(`${LOGS_URL}`)"
-      - "traefik.http.routers.logs.entrypoints=http"
-      - "traefik.http.routers.logs.service=logs"
-      - "traefik.http.services.logs.loadbalancer.server.port=7681"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-odoo.rule=Host(`${COMPOSE_PROJECT_NAME}.odoo.docker.localhost`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-odoo.entrypoints=http"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-odoo.service=${COMPOSE_PROJECT_NAME}-odoo"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-odoo.middlewares=strip-frame-headers@docker"   # hub iframes
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}-odoo.loadbalancer.server.port=8069"
+      # /websocket goes to the gevent port when Odoo runs with workers (ODOO_WS_PORT=8072);
+      # default 8069 = same process in threaded mode (workers=0)
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-ws.rule=Host(`${COMPOSE_PROJECT_NAME}.odoo.docker.localhost`) && PathPrefix(`/websocket`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-ws.entrypoints=http"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-ws.service=${COMPOSE_PROJECT_NAME}-ws"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-ws.priority=100"
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}-ws.loadbalancer.server.port=${ODOO_WS_PORT:-8069}"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-logs.rule=Host(`${COMPOSE_PROJECT_NAME}.logs.docker.localhost`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-logs.entrypoints=http"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-logs.service=${COMPOSE_PROJECT_NAME}-logs"
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}-logs.loadbalancer.server.port=7681"
     restart: ${RESTART_ON_FAIL}
     stop_grace_period: ${FORCE_STOP_DELAY}
 
@@ -141,15 +160,17 @@ services:
   # UTILS — Admin Tools Container + Web Terminal
   # -----------------------------------------------------------------------------
   # Persistent container that holds all management commands:
-  #   reboot, update, database, rebuild, migrate, shell, conf, ...
+  #   reboot, update, database, rebuild, migrate, shell, ...
   #
   # Has access to the Docker socket to control other containers.
   # A web terminal serves the tmux session directly (no docker exec).
   #
-  # Accessible at: http://${UTILS_URL}
+  # Terminal: http://${COMPOSE_PROJECT_NAME}.utils.docker.localhost
+  # MCP:      http://${COMPOSE_PROJECT_NAME}.mcp.docker.localhost/mcp
   # -----------------------------------------------------------------------------
   utils:
     container_name: ${COMPOSE_PROJECT_NAME}_utils
+    image: odoo-env/utils:${UTILS_IMAGE_REV:-dev}
     build:
       context: .
       dockerfile: .data/docker/utils/Dockerfile
@@ -157,24 +178,70 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw                                              # Docker socket — required to exec into other containers
       - .:/home/utils/odoo_custom_docker:rw                                                                # Full project folder — scripts read .env and docker-compose.yml from here
       - ${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:/home/utils/odoo_custom_docker/${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}:rw  # Mirrored enterprise path — needed by 'rebuild' to pass modules to odoo container
-      - ${ODOO_PATH:-./.data/volumes/.odoo_placeholder}:/home/utils/odoo_src:rw                            # Odoo source — used for module name autocompletion
-      - ./.data/volumes/shared:/var/shared:rw                                                       # Shared data with odoo (version cache for tmux status bar)
+      - ${ODOO_PATH:-./.data/volumes/.odoo_placeholder}:/home/utils/odoo_src:rw                            # Odoo source — 'pull' command, module name autocompletion
+      - ${SSH_PATH:-./.data/volumes/.ssh_placeholder}:/home/utils/.ssh_host:ro                             # Host ssh keys for 'pull' on ssh remotes (copied to ~/.ssh at start)
+      - ./.data/volumes/shared:/var/shared:rw                                                       # State shared with odoo: status bar files, status.json, setup flag, project name
+      - odoo_env_meta:/var/odoo-env:rw                                                              # Shared by every project: last use of each image (auto cleanup)
     environment:
-      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}   # folder name unless set in .env
+      - PROJECT_COLOR=${PROJECT_COLOR:-}               # colour of the project (hub tab, terminals), see .env
       - ODOO_VERSION=${ODOO_VERSION}
       - PYTHON_VERSION=${PYTHON_VERSION}
       - POSTGRES_VERSION=${POSTGRES_VERSION}
+      - ODOO_BUILD=${ODOO_BUILD}
+      - IMAGE_RETENTION_DAYS=${IMAGE_RETENTION_DAYS:-30}
       - ENTERPRISE_PATH=${ENTERPRISE_PATH:-./.data/volumes/.enterprise_placeholder}
       - ODOO_PATH=${ODOO_PATH:-./.data/volumes/.odoo_placeholder}
     stdin_open: true
     tty: true
     networks:
       - network
+      - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.utils.rule=Host(`${UTILS_URL}`)"
-      - "traefik.http.routers.utils.entrypoints=http"
-      - "traefik.http.services.utils.loadbalancer.server.port=7681"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-utils.rule=Host(`${COMPOSE_PROJECT_NAME}.utils.docker.localhost`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-utils.entrypoints=http"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-utils.service=${COMPOSE_PROJECT_NAME}-utils"
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}-utils.loadbalancer.server.port=7681"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mcp.rule=Host(`${COMPOSE_PROJECT_NAME}.mcp.docker.localhost`)"   # MCP server (utils: mcp)
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mcp.entrypoints=http"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mcp.service=${COMPOSE_PROJECT_NAME}-mcp"
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}-mcp.loadbalancer.server.port=8300"
+    restart: ${RESTART_ON_FAIL}
+    stop_grace_period: ${FORCE_STOP_DELAY}
+
+
+  # -----------------------------------------------------------------------------
+  # MAIL — outgoing mail catcher (Mailpit)
+  # -----------------------------------------------------------------------------
+  # Every mail Odoo sends lands here instead of the Internet: the odoo entrypoint
+  # points smtp_server/smtp_port of odoo.conf to this container and the dev DB
+  # bootstrap rewrites every ir.mail_server to it (neutralized dumps included).
+  # Profile 'mail' (COMPOSE_PROFILES in .env): remove it to run without.
+  #
+  # Inbox: http://${COMPOSE_PROJECT_NAME}.mail.docker.localhost
+  # -----------------------------------------------------------------------------
+  mail:
+    container_name: ${COMPOSE_PROJECT_NAME}_mail
+    image: axllent/mailpit:latest
+    profiles: ["mail"]
+    environment:
+      - MP_DATABASE=/data/mailpit.db
+      - MP_SMTP_AUTH_ACCEPT_ANY=1
+      - MP_SMTP_AUTH_ALLOW_INSECURE=1
+      - MP_MAX_MESSAGES=2000
+    volumes:
+      - ./.data/volumes/mail:/data:rw                                                          # Caught mails (persisted)
+    networks:
+      - network
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mail.rule=Host(`${COMPOSE_PROJECT_NAME}.mail.docker.localhost`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mail.entrypoints=http"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mail.service=${COMPOSE_PROJECT_NAME}-mail"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-mail.middlewares=strip-frame-headers@docker"   # hub iframes
+      - "traefik.http.services.${COMPOSE_PROJECT_NAME}-mail.loadbalancer.server.port=8025"
     restart: ${RESTART_ON_FAIL}
     stop_grace_period: ${FORCE_STOP_DELAY}
 
@@ -182,14 +249,27 @@ services:
 # -----------------------------------------------------------------------------
 # NETWORKS
 # -----------------------------------------------------------------------------
-# Single bridge network shared by all containers.
-# Name and subnet are configured in .env (NETWORK_NAME, NETWORK_SUBNET).
-# Only change these in .env if running multiple instances simultaneously.
+# One bridge network per project (<project>_network, subnet chosen by Docker),
+# plus the shared 'odoo_proxy' network where Traefik reaches odoo and utils.
+# The shared one is created by whoever comes first (a project or the proxy
+# stack) and reused by the others: compose then warns "a network with name
+# odoo_proxy exists but was not created for project ..." — harmless. 'down'
+# leaves it in place while the proxy or another project uses it.
 # -----------------------------------------------------------------------------
 networks:
   network:
-    name: ${NETWORK_NAME}
+    name: ${COMPOSE_PROJECT_NAME}_network
     driver: bridge
-    ipam:
-      config:
-        - subnet: ${NETWORK_SUBNET}
+  proxy:
+    name: odoo_proxy
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# VOLUMES
+# -----------------------------------------------------------------------------
+# odoo_env_meta is deliberately NOT prefixed by the project: every project
+# shares it so that the image cleanup knows when each odoo-env/* image was last used.
+# -----------------------------------------------------------------------------
+volumes:
+  odoo_env_meta:
+    name: odoo_env_meta

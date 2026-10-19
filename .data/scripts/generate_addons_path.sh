@@ -19,6 +19,7 @@ ODOO_CONF="/etc/odoo/odoo.conf"
 EXTRA_ADDONS_ROOT="/mnt/extra-addons"
 
 if [ ! -f "$ENV_FILE" ]; then
+    echo "generate_addons_path: $ENV_FILE not found, addons_path left unchanged" >&2
     exit 0
 fi
 
@@ -64,7 +65,7 @@ find_addon_manifests() {
     local base="$EXTRA_ADDONS_ROOT"
 
     if [ -z "${IGNORED_PATH:-}" ]; then
-        find "$base" \( -name "__manifest__.py" -o -name "__openerp__.py" \) 2>/dev/null
+        find "$base" -name "__manifest__.py" 2>/dev/null
         return
     fi
 
@@ -89,12 +90,12 @@ find_addon_manifests() {
     done
 
     if [ ${#prune_cond[@]} -eq 0 ]; then
-        find "$base" \( -name "__manifest__.py" -o -name "__openerp__.py" \) 2>/dev/null
+        find "$base" -name "__manifest__.py" 2>/dev/null
         return
     fi
 
     find "$base" \( "${prune_cond[@]}" \) -prune -o \
-        \( -name "__manifest__.py" -o -name "__openerp__.py" \) -print 2>/dev/null
+        -name "__manifest__.py" -print 2>/dev/null
 }
 
 PATHS=""
@@ -128,7 +129,7 @@ if [ -d "$EXTRA_ADDONS_ROOT" ]; then
             PATHS="${PATHS}${PATHS:+,}${FOUND_PATHS}"
         fi
     else
-        if find "$EXTRA_ADDONS_ROOT" -maxdepth 2 \( -name "__manifest__.py" -o -name "__openerp__.py" \) -print -quit 2>/dev/null | grep -q .; then
+        if find "$EXTRA_ADDONS_ROOT" -maxdepth 2 -name "__manifest__.py" -print -quit 2>/dev/null | grep -q .; then
             PATHS="${PATHS}${PATHS:+,}${EXTRA_ADDONS_ROOT}"
         fi
     fi

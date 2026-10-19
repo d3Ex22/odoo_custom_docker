@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# stop - Stop Odoo process
+# stop - Stop the Odoo process (container stays up)
 # ============================================================================
 # Usage: stop [-h|--help]
 # ============================================================================
@@ -8,28 +8,29 @@
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 show_help() {
-    echo ""
-    echo "stop - Stop Odoo process"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       stop"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Sends Ctrl+C to the Odoo process in its tmux pane."
-    echo "       The pane stays open, use 'start' to restart Odoo."
-    echo ""
+    h_name "stop" "Stop the Odoo process"
+    h_sec "USAGE"
+    h_use "stop"
+    h_sec "DESCRIPTION"
+    h_text "Kills the Odoo process (SIGKILL — dev environment, instant). The"
+    h_text "container and the logs pane stay up; use 's' to start Odoo again."
+    h_global
+    h_end
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+    "") ;;
+    *) die "Unknown option: $1" "See: stop --help" ;;
+esac
+
+require_odoo_container
+if ! odoo_process_running; then
+    ui_ok "Odoo is already stopped"
     exit 0
 fi
-
-if ! docker exec "$ODOO_CONTAINER" pgrep -x odoo >/dev/null 2>&1; then
-    echo "Odoo is already stopped"
-    exit 0
-fi
-
-echo "Stopping Odoo..."
-stop_odoo || exit 1
-echo "✓ Odoo stopped"
+stop_odoo || die "Failed to stop Odoo"
+ui_ok "Odoo stopped"
+ui_note "s to start it again"

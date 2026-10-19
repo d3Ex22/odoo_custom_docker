@@ -1,129 +1,92 @@
 #!/bin/bash
 set -uo pipefail
 # ============================================================================
-# migrate - Migrate database to a new Odoo version
+# migrate - Upgrade a database to a newer Odoo version (upgrade.odoo.com)
 # ============================================================================
 # Usage: migrate [-h|--help] <database> <version>
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
+PANE=always   # long: runs in a side pane of the utils terminal
 
-get_valid_versions() {
-    [ ! -f "$COMPAT_FILE" ] && echo "19.0 18.0 17.0 16.0" && return
-    grep -v '^#' "$COMPAT_FILE" | grep -v '^$' | cut -d: -f1 | sort -rV | tr '\n' ' '
-}
-
-VALID_VERSIONS=($(get_valid_versions))
+VALID_VERSIONS=$(compat_odoo_versions | xargs)
 
 show_help() {
-    echo ""
-    echo "migrate - Migrate database to a new Odoo version"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       migrate <database> <version>"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       database    Source database name"
-    echo "       version     Target Odoo version (${VALID_VERSIONS[*]})"
-    echo ""
-    printf "   ${CPRIMARY}REQUIREMENTS${RST}\n"
-    echo "       ENTERPRISE_KEY in .env (required)"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Uses Odoo's official upgrade service to migrate the database."
-    echo "       The original database is preserved, migration creates a copy."
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       migrate production 19.0"
-    echo "       migrate mydb_18 19.0"
-    echo ""
+    h_name "migrate" "Upgrade a database with Odoo's upgrade service"
+    h_sec "USAGE"
+    h_use "migrate <database> <version>"
+    h_sec "ARGUMENTS"
+    h_opt "database" "Source database (left untouched)"
+    h_opt "version" "Target Odoo version: ${VALID_VERSIONS}"
+    h_sec "REQUIREMENTS"
+    h_text "ENTERPRISE_KEY in .env.secrets (or .env) — an Enterprise subscription code."
+    h_sec "DESCRIPTION"
+    h_text "Runs the official upgrade script in 'test' mode: the database is"
+    h_text "dumped, upgraded by upgrade.odoo.com and restored as a new database"
+    h_text "named by the service (<database>_<version>...). Takes several minutes:"
+    h_text "runs in a side pane so you can keep working meanwhile."
+    h_sec "EXAMPLES"
+    h_ex "migrate main 19.0" ""
+    h_global
+    h_end
 }
 
-validate_version() {
-    for v in "${VALID_VERSIONS[@]}"; do
-        [ "$1" = "$v" ] && return 0
-    done
-    echo "❌ Invalid version: $1"
-    echo "   Supported: ${VALID_VERSIONS[*]}"
-    exit 1
-}
-
-get_db_version() {
-    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$1" -tAc \
-        "SELECT latest_version FROM ir_module_module WHERE name = 'base' LIMIT 1;" 2>/dev/null
-}
-
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
-    exit 0
-fi
-
-if [ $# -lt 2 ]; then
-    echo "❌ Usage: migrate <database> <version>"
-    echo "   Use 'migrate --help' for details"
-    exit 1
-fi
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
+case "${1:-}" in -h|--help) show_help; exit 0 ;; esac
+[ $# -ne 2 ] && die "Usage: migrate <database> <version>" "See: migrate --help"
 
 SRC_DB="$1"
 TARGET_VERSION="$2"
+echo "$VALID_VERSIONS" | tr ' ' '\n' | grep -qx "$TARGET_VERSION" \
+    || die "Unsupported version: $TARGET_VERSION" "Supported: $VALID_VERSIONS"
 
-validate_version "$TARGET_VERSION"
+require_db_container
+db_exists "$SRC_DB" || die "Database '$SRC_DB' does not exist" "db list to see the databases"
 
-if ! db_exists "$SRC_DB"; then
-    echo "❌ Database '$SRC_DB' does not exist"
-    exit 1
-fi
+CURRENT_VERSION=$(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$SRC_DB" -tAc \
+    "SELECT latest_version FROM ir_module_module WHERE name = 'base' LIMIT 1;" 2>/dev/null)
+[ -z "$CURRENT_VERSION" ] && die "Cannot read the Odoo version of '$SRC_DB'" "Is it an Odoo database?"
+CURRENT_MAJOR="${CURRENT_VERSION%%.*}"
+TARGET_MAJOR="${TARGET_VERSION%%.*}"
+[ "$CURRENT_MAJOR" -ge "$TARGET_MAJOR" ] && die "Database is already on ${CURRENT_VERSION} (>= ${TARGET_VERSION})"
 
-echo "Detecting database Odoo version..."
-CURRENT_VERSION=$(get_db_version "$SRC_DB")
-if [ -z "$CURRENT_VERSION" ]; then
-    echo "❌ Unable to determine current version"
-    exit 1
-fi
-echo "   Current: $CURRENT_VERSION"
+[ -z "${ENTERPRISE_KEY:-}" ] && die "ENTERPRISE_KEY is not set" "Add ENTERPRISE_KEY=<code> to .env.secrets (git-ignored)"
+open_pane
 
-CURRENT_MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
-TARGET_MAJOR=$(echo "$TARGET_VERSION" | cut -d. -f1)
-if [ "$CURRENT_MAJOR" -ge "$TARGET_MAJOR" ]; then
-    echo "❌ Current version ($CURRENT_VERSION) >= target ($TARGET_VERSION)"
-    exit 1
-fi
+ui_title "Migrate" "$SRC_DB  ${CURRENT_VERSION} → ${TARGET_VERSION}"
 
-if [ -z "$ENTERPRISE_KEY" ]; then
-    echo "❌ ENTERPRISE_KEY not found in .env"
-    echo "   Add ENTERPRISE_KEY=your_code to .env"
-    exit 1
-fi
+ui_kv "Database" "$SRC_DB"
+ui_kv "From → to" "${CURRENT_VERSION} → ${TARGET_VERSION}"
+ui_kv "Contract" "${ENTERPRISE_KEY:0:8}..."
+echo
+confirm "Start the upgrade? (several minutes)" || { ui_note "Cancelled"; exit 0; }
+echo
 
-# Check and install matching PostgreSQL client version
-PG_SERVER_VERSION=$(docker exec "$DB_CONTAINER" postgres --version 2>/dev/null | grep -oP '\d+' | head -1)
-PG_CLIENT_VERSION=$(pg_dump --version 2>/dev/null | grep -oP '\d+' | head -1)
-
-echo "Container's PostgreSQL versions:"
-echo "   Database: $PG_SERVER_VERSION"
-echo "   Utils: $PG_CLIENT_VERSION"
-
-if [ -n "$PG_SERVER_VERSION" ] && [ "$PG_CLIENT_VERSION" != "$PG_SERVER_VERSION" ]; then
-    echo "Switching PostgreSQL client $PG_CLIENT_VERSION → $PG_SERVER_VERSION..."
+# The upgrade script dumps with the local pg_dump: its major must match the server.
+PG_SERVER=$(docker exec "$DB_CONTAINER" postgres --version 2>/dev/null | grep -oP '\d+' | head -1)
+PG_CLIENT=$(pg_dump --version 2>/dev/null | grep -oP '\d+' | head -1)
+if [ -n "$PG_SERVER" ] && [ "$PG_CLIENT" != "$PG_SERVER" ]; then
+    ui_step "Installing PostgreSQL client ${PG_SERVER} (server) in place of ${PG_CLIENT}..."
     sudo apt-get update -qq 2>/dev/null
-    sudo apt-get remove -y -qq postgresql-client-$PG_CLIENT_VERSION >/dev/null 2>&1
-    sudo apt-get install -y -qq postgresql-client-$PG_SERVER_VERSION >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        hash -r  # Refresh bash PATH cache
-        export PATH="/usr/lib/postgresql/$PG_SERVER_VERSION/bin:$PATH"
-        echo "✓ PostgreSQL client $PG_SERVER_VERSION installed"
+    sudo apt-get remove -y -qq "postgresql-client-${PG_CLIENT}" >/dev/null 2>&1
+    if sudo apt-get install -y -qq "postgresql-client-${PG_SERVER}" >/dev/null 2>&1; then
+        hash -r
+        export PATH="/usr/lib/postgresql/${PG_SERVER}/bin:$PATH"
+        ui_ok "PostgreSQL client ${PG_SERVER} installed"
     else
-        echo "⚠️  Could not install PostgreSQL client $PG_SERVER_VERSION, using default"
+        ui_warn "Could not install PostgreSQL client ${PG_SERVER}; using ${PG_CLIENT}"
     fi
 fi
 
-echo ""
-echo "Migration:"
-echo "   Database: $SRC_DB"
-echo "   From: $CURRENT_VERSION → $TARGET_VERSION"
-echo "   Enterprise key: ${ENTERPRISE_KEY:0:8}..."
-echo ""
-echo "Starting upgrade..."
-echo ""
-
-cd /tmp && PGHOST=db PGUSER="$DB_USER" PGPASSWORD=$DB_PASSWORD python3 <(curl -s https://upgrade.odoo.com/upgrade) test -d "$SRC_DB" -t "$TARGET_VERSION" --contract "$ENTERPRISE_KEY"
+UPGRADE_PY=$(mktemp /tmp/upgrade.XXXXXX.py); trap 'rm -f "$UPGRADE_PY"' EXIT
+curl -fsS -o "$UPGRADE_PY" https://upgrade.odoo.com/upgrade || die "Cannot download the upgrade script" "https://upgrade.odoo.com"
+cd /tmp && PGHOST="$DB_CONTAINER" PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+    python3 "$UPGRADE_PY" test -d "$SRC_DB" -t "$TARGET_VERSION" --contract "$ENTERPRISE_KEY"
+RC=$?
+echo
+if [ $RC -eq 0 ]; then
+    ui_done "Upgrade finished — the upgraded copy is listed by: db list"
+else
+    die "Upgrade script exited with code $RC"
+fi

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# shell - Open Odoo shell in a new pane
+# shell - Odoo Python shell in a side pane
 # ============================================================================
 # Usage: shell [-h|--help] [database]
 # ============================================================================
@@ -8,55 +8,45 @@
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 show_help() {
-    echo ""
-    echo "shell - Open Odoo shell in a new pane"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       shell [database]"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       database    ${CPRIMARY}Database name (default: SELECTED_DB)    ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Opens the Odoo shell in a new vertical tmux pane"
-    echo "       (50% width) in the utils terminal."
-    echo "       Exit and close the pane with 'exit()' in the shell terminal."
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       shell                  ${CPRIMARY}Shell with SELECTED_DB          ${RST}"
-    echo "       shell mydb             ${CPRIMARY}Shell with specific DB          ${RST}"
-    echo ""
+    h_name "shell" "Open an Odoo Python shell in a side pane"
+    h_sec "USAGE"
+    h_use "shell [database]"
+    h_sec "ARGUMENTS"
+    h_opt "database" "Database (default: SELECTED_DB, asked when empty)"
+    h_sec "DESCRIPTION"
+    h_text "Opens 'odoo shell' (IPython: completion, history, ?help) in a new pane"
+    h_text "on the right (50%). 'env', 'self' and the usual Odoo globals are"
+    h_text "available. Exit with exit() / Ctrl+D."
+    h_text "Non-interactive use (scripts, AI): docker exec -i <odoo> odoo shell -d DB < code.py"
+    h_sec "EXAMPLES"
+    h_ex "shell" "Shell on SELECTED_DB"
+    h_ex "shell mydb" "Shell on a specific DB"
+    h_global
+    h_end
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
+case "${1:-}" in -h|--help) show_help; exit 0 ;; esac
+[ $# -gt 1 ] && die "Usage: shell [database]"
+
+require_odoo_container
+require_db_container
+DBNAME="${1:-${SELECTED_DB:-}}"
+[ -z "$DBNAME" ] && { pick_db "Which database?" || exit 1; DBNAME="$PICKED"; }
+db_exists "$DBNAME" || die "Database '$DBNAME' does not exist" "db list to see the databases"
+
+ui_step "Opening Odoo shell on '$DBNAME'..."
+# Refresh addons_path in odoo.conf so modules added since the last start are known.
+docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh >/dev/null 2>&1
+# From the utils terminal: side pane closed when the shell exits. Elsewhere
+# (docker exec -it): inline.
+if in_utils_terminal; then
+    run_in_pane "odoo-shell" "50%" close \
+        docker exec -it "$ODOO_CONTAINER" odoo shell -c /etc/odoo/odoo.conf -d "$DBNAME" --no-http || exit 1
+    ui_ok "Shell opened in a side pane"
+    ui_note "exit() or Ctrl+D closes it"
     exit 0
 fi
-
-DBNAME="$1"
-[ -z "$DBNAME" ] && DBNAME="${SELECTED_DB}"
-
-if [ -z "$DBNAME" ]; then
-    echo "❌ No database specified and no SELECTED_DB in .env"
-    echo "   Usage: shell <database>"
-    exit 1
-fi
-
-if ! docker ps --format '{{.Names}}' | grep -q "^${ODOO_CONTAINER}$"; then
-    echo "❌ Odoo container is not running"
-    exit 1
-fi
-
-PANE_COUNT=$(sudo tmux -S /tmp/tmux-0/default list-panes -t utils 2>/dev/null | wc -l)
-if [ "$PANE_COUNT" -gt 2 ]; then
-    echo "⚠️  Shell pane already open"
-    echo "   Close it with 'exit' or Ctrl+D first"
-    exit 1
-fi
-
-SHELL_CMD="docker exec -it $ODOO_CONTAINER odoo shell -c /etc/odoo/odoo.conf -d $DBNAME"
-
-echo "Opening Odoo shell for '$DBNAME'..."
-sudo tmux -S /tmp/tmux-0/default split-window -t utils:0.1 -h -p 50 "$SHELL_CMD"
-echo "✓ Shell opened in side pane"
-echo "  Exit with 'exit' or Ctrl+D"
+TTY=""; [ -t 0 ] && TTY="-t"
+exec docker exec -i $TTY "$ODOO_CONTAINER" odoo shell -c /etc/odoo/odoo.conf -d "$DBNAME" --no-http

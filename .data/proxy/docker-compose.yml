@@ -1,0 +1,81 @@
+# =============================================================================
+# Shared reverse proxy — ONE stack for every project on this machine.
+#
+# Started automatically by the utils container of the first project that comes
+# up (see .data/docker/utils/entrypoint.sh); every project copy ships the same
+# file, so the next ones are a no-op. Manual control: 'proxy' in utils.
+#
+#   http://odoo.docker.localhost           hub: tabs of the projects (running + known)
+#   http://<name>.odoo.docker.localhost    one project directly
+#   http://<name>.logs|utils|mail|mcp.docker.localhost
+#   http://traefik.docker.localhost        Traefik dashboard (also localhost:8080)
+#
+# Both ports are bound to 127.0.0.1: nothing of this is reachable from the LAN.
+#
+# Project containers are on the 'odoo_proxy' network (declared in their own
+# docker-compose.yml) and are discovered through their Traefik labels.
+# =============================================================================
+name: odoo_proxy
+
+services:
+  traefik:
+    container_name: odoo_proxy_traefik
+    image: traefik:v3
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker"
+      - "--providers.docker.exposedByDefault=false"
+      - "--providers.docker.network=odoo_proxy"
+      - "--entrypoints.http.address=:80"
+    ports:   # loopback only: the hub and its actions must not be reachable from the LAN
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    networks:
+      - odoo_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.docker.localhost`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=http"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+    restart: unless-stopped
+    stop_grace_period: 1s
+
+  hub:
+    container_name: odoo_proxy_hub
+    image: odoo-env/hub:latest
+    build: .
+    volumes:
+      - ./hub.py:/hub/hub.py:ro                        # live copy of the server and its page (image holds a fallback)
+      - ./static:/hub/static:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw   # start a known project from the page
+      - odoo_env_meta:/var/odoo-env:rw                 # registry of the projects (utils entrypoint); rw: 'forget'
+    networks:
+      - odoo_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.hub.loadbalancer.server.port=8000"
+      # Bare hosts only; a project host (aec.odoo...) is a longer rule and wins
+      # anyway, priority 1 keeps the hub last in every case.
+      - "traefik.http.routers.hub.rule=Host(`odoo.docker.localhost`) || Host(`logs.docker.localhost`) || Host(`utils.docker.localhost`) || Host(`mail.docker.localhost`) || Host(`mcp.docker.localhost`) || Host(`docker.localhost`)"
+      - "traefik.http.routers.hub.entrypoints=http"
+      - "traefik.http.routers.hub.priority=1"
+      - "traefik.http.routers.hub.service=hub"
+      # Odoo refuses to be framed (X-Frame-Options / CSP frame-ancestors): the
+      # hub embeds each project in an iframe, so the project odoo routers use
+      # this middleware to drop them. Local development only.
+      - "traefik.http.middlewares.strip-frame-headers.headers.customResponseHeaders.X-Frame-Options="
+      - "traefik.http.middlewares.strip-frame-headers.headers.customResponseHeaders.Content-Security-Policy="
+    restart: unless-stopped
+    stop_grace_period: 1s
+
+networks:
+  odoo_proxy:
+    name: odoo_proxy
+    driver: bridge
+
+# Shared with every project (same name there): image ledger + project registry
+volumes:
+  odoo_env_meta:
+    name: odoo_env_meta

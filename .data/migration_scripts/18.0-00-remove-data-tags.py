@@ -30,39 +30,30 @@ def upgrade(file_manager: FileManager):
     # Pattern to match <odoo> tag (to add noupdate if needed)
     odoo_pattern = re.compile(r'<odoo>')
 
+    def dedent(block: str, indent: str) -> str:
+        """Remove one indentation level (4 spaces or a tab) below the <data> indent."""
+        lines = []
+        for line in block.split('\n'):
+            if line.startswith(indent + '    '):
+                lines.append(line[4:])
+            elif line.startswith(indent + '\t'):
+                lines.append(line[1:])
+            else:
+                lines.append(line)
+        return '\n'.join(lines)
+
     for fileno, file in enumerate(files, start=1):
         content = file.content
+        noupdate = None
 
-        # Check if file has <data> tags
-        match = data_pattern.search(content)
-        if not match:
-            file_manager.print_progress(fileno, len(files), file.path)
-            continue
+        def replace(match: re.Match) -> str:
+            nonlocal noupdate
+            noupdate = noupdate or match.group('noupdate')
+            return dedent(match.group('content'), match.group('indent'))
 
-        indent = match.group('indent')
-        noupdate = match.group('noupdate')
-        inner = match.group('content')
-
-        # Dedent by removing one level of indentation (4 spaces or 1 tab)
-        dedented_lines = []
-        for line in inner.split('\n'):
-            if line.startswith(indent + '    '):
-                dedented_lines.append(line[len(indent) + 4:])
-            elif line.startswith(indent + '\t'):
-                dedented_lines.append(line[len(indent) + 1:])
-            elif line.strip() == '':
-                dedented_lines.append('')
-            else:
-                dedented_lines.append(line[len(indent):] if line.startswith(indent) else line)
-
-        dedented = '\n'.join(dedented_lines)
-
-        # Replace matched section using positions
-        new_content = content[:match.start()] + dedented + content[match.end():]
-
-        # If noupdate attribute exists, add it to <odoo> tag
+        new_content = data_pattern.sub(replace, content)
         if noupdate:
-            new_content = odoo_pattern.sub(f'<odoo {noupdate}>', new_content)
+            new_content = odoo_pattern.sub(f'<odoo {noupdate}>', new_content, count=1)
 
         if new_content != content:
             file.content = new_content

@@ -1,8 +1,11 @@
 .data/volumes/
 .data/host_project_path.map
+addons/
 db_files/
 .git/
+.DS_Store
 *.log
 *.pyc
 __pycache__/
 .data/web-terminal/node_modules/
+docs/

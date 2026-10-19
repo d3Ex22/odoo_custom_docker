@@ -1,30 +1,63 @@
-FROM ubuntu:25.10
+# Two stages: 'builder' compiles the virtualenv (compilers, -dev headers), the
+# final image only carries the runtime libraries + the venv and interpreter
+# copied from it (~400 MB lighter, no toolchain to keep updated).
+FROM ubuntu:26.04 AS base
 
 ARG ODOO_VERSION
-ARG ODOO_BUILD
 ARG PYTHON_VERSION
 ARG TARGETARCH
 
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 ENV ODOO_VERSION=${ODOO_VERSION}
 ENV ODOO_RC=/etc/odoo/odoo.conf
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="${VIRTUAL_ENV}/bin:/opt/odoo:${PATH}"
+# No wheel cache in the image layers (~2 GB otherwise)
+ENV UV_NO_CACHE=1
+# uv-managed interpreters live here in both stages
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
 
 SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
 
 # ============================================
-# 1. SYSTEM DEPENDENCIES
+# 1. RUNTIME SYSTEM DEPENDENCIES (shared by both stages)
 # ============================================
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        build-essential \
         ca-certificates \
         curl \
         fonts-noto-cjk \
-        gettext-base \
         git \
+        libcairo2 \
+        libcups2t64 \
+        libldap2 \
+        libpq5 \
+        libsasl2-2 \
+        libxml2-16 \
+        libxmlsec1-1 \
+        libxmlsec1-openssl1 \
+        libxslt1.1 \
+        npm \
+        postgresql-client \
+        tmux \
+        tini && \
+    if [ "$ODOO_VERSION" != "14.0" ] && [ "$ODOO_VERSION" != "15.0" ]; then \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libmagic1t64; \
+    fi && \
+    npm install -g rtlcss && \
+    npm cache clean --force && \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+# ============================================
+# 2. BUILDER: toolchain + headers, Python, Odoo requirements compiled here
+# ============================================
+FROM base AS builder
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
         libcairo2-dev \
         libcups2-dev \
         libffi-dev \
@@ -34,32 +67,10 @@ RUN apt-get update && \
         libssl-dev \
         libxml2-dev \
         libxmlsec1-dev \
-        locales \
-        node-less \
-        npm \
-        postgresql-client \
-        tmux \
-        tini && \
-    locale-gen en_US.UTF-8 && \
-    if [ "$ODOO_VERSION" != "14.0" ] && [ "$ODOO_VERSION" != "15.0" ]; then \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libmagic1; \
-    fi && \
-    npm install -g rtlcss && \
+        libxslt1-dev \
+        swig && \
     rm -rf /var/lib/apt/lists/*
 
-# ============================================
-# 2. CREATE ODOO USER
-# ============================================
-RUN useradd -m -d /var/lib/odoo -U -r -s /bin/bash odoo
-
-# ============================================
-# 3. UV INSTALLATION
-# ============================================
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-
-# ============================================
-# 4. INSTALL SELECTED PYTHON VERSION
-# ============================================
 RUN uv python install ${PYTHON_VERSION} && \
     uv venv --seed --python ${PYTHON_VERSION} ${VIRTUAL_ENV} && \
     if [ "$ODOO_VERSION" = "17.0" ]; then \
@@ -69,7 +80,80 @@ RUN uv python install ${PYTHON_VERSION} && \
     fi
 
 # ============================================
-# 5. WKHTMLTOPDF
+# 3. ODOO INSTALLATION FROM SOURCE (builder)
+# ============================================
+# Editable install: the venv points to /opt/odoo instead of holding a second
+# copy of the source (halves the layer).
+# ODOO_BUILD is declared here on purpose: with BuildKit every RUN after an ARG
+# declaration is invalidated when its value changes, so a new nightly build
+# only re-runs this layer and the following ones (system deps stay cached).
+# 'latest' is resolved to the real build date so .build_version always holds
+# a comparable value (rebuild / status bar rely on it).
+ARG ODOO_BUILD
+RUN BUILD="${ODOO_BUILD}" && \
+    if [ "$BUILD" = "latest" ]; then \
+        BUILD=$(curl -s "https://nightly.odoo.com/${ODOO_VERSION}/nightly/src/" \
+            | grep -oP "odoo_${ODOO_VERSION}\.\K\d{8}(?=\.tar\.gz)" | sort -r | head -1); \
+        BUILD="${BUILD:-latest}"; \
+    fi && \
+    mkdir -p /opt/odoo && \
+    curl -sSL https://nightly.odoo.com/${ODOO_VERSION}/nightly/src/odoo_${ODOO_VERSION}.${BUILD}.tar.gz | \
+    tar -xz --strip-components=1 -C /opt/odoo && \
+    if [[ "${PYTHON_VERSION}" == 3.10* ]]; then \
+        sed -i \
+            -e 's/^gevent==21\.8\.0/gevent==22.10.2/' \
+            -e 's/^greenlet==1\.1\.2/greenlet==2.0.2/' \
+            -e 's/^cryptography==3\.4\.8; python_version < '\''3\.12'\''.*/cryptography==42.0.8; python_version < '\''3\.12'\''/' \
+            -e 's/^pyopenssl==21\.0\.0 ; python_version < '\''3\.12'\''.*/pyopenssl==24.1.0 ; python_version < '\''3\.12'\''/' \
+            -e 's/^urllib3==1\.26\.5 ; python_version < '\''3\.12'\''.*/urllib3==2.0.7 ; python_version < '\''3\.12'\''/' \
+            -e 's/^requests==2\.25\.1 ;  python_version < '\''3\.11'\''.*/requests==2.31.0 ;  python_version < '\''3\.11'\''/' \
+            /opt/odoo/requirements.txt; \
+    fi && \
+    uv pip install -r /opt/odoo/requirements.txt && \
+    uv pip install -e /opt/odoo && \
+    rm -rf /opt/odoo/build && \
+    find /opt/odoo /opt/venv -name '__pycache__' -type d -prune -exec rm -rf {} + && \
+    echo "${ODOO_VERSION}|${BUILD}" > /opt/odoo/.build_version
+
+# ============================================
+# 4. EXTRA PYTHON DEPENDENCIES (builder)
+# ============================================
+RUN uv pip install \
+    coverage \
+    debugpy \
+    ipython \
+    dbfread \
+    ebaysdk \
+    firebase_admin \
+    num2words \
+    ofxparse \
+    packaging \
+    pdfminer.six \
+    phonenumbers \
+    rlPyCairo
+# IoT Box mode (ODOO_IOT_BOX, Odoo 19+): its compiled deps are built here so
+# check_iot.sh finds them at start (the final image has no compiler); one that
+# fails only disables that part of IoT.
+RUN for p in netifaces2 schedule websocket-client python-escpos pyudev zeroconf PyKCS11 evdev pycups; do \
+        uv pip install "$p" || echo "IoT dep skipped: $p"; \
+    done
+
+# ============================================
+# 5. FINAL IMAGE: runtime libs + interpreter, venv and Odoo from the builder
+# ============================================
+FROM base
+
+COPY --from=builder /opt/python /opt/python
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/odoo /opt/odoo
+
+# ============================================
+# 6. ODOO USER
+# ============================================
+RUN useradd -m -d /var/lib/odoo -U -r -s /bin/bash odoo
+
+# ============================================
+# 7. WKHTMLTOPDF
 # ============================================
 # v14-15: 0.12.5 (buster, amd64 only)
 # v16:    0.12.6.1-3 (bullseye, multi-arch)
@@ -87,74 +171,14 @@ RUN ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
     rm -rf /var/lib/apt/lists/* wkhtmltox.deb
 
 # ============================================
-# 6. ODOO INSTALLATION FROM SOURCE
+# 8. ENTRYPOINT (mounted, not copied)
 # ============================================
-RUN mkdir -p /opt/odoo && \
-    curl -sSL https://nightly.odoo.com/${ODOO_VERSION}/nightly/src/odoo_${ODOO_VERSION}.${ODOO_BUILD}.tar.gz | \
-    tar -xz --strip-components=1 -C /opt/odoo && \
-    if [[ "${PYTHON_VERSION}" == 3.10* ]]; then \
-        sed -i \
-            -e 's/^gevent==21\.8\.0/gevent==22.10.2/' \
-            -e 's/^greenlet==1\.1\.2/greenlet==2.0.2/' \
-            -e 's/^cryptography==3\.4\.8; python_version < '\''3\.12'\''.*/cryptography==42.0.8; python_version < '\''3\.12'\''/' \
-            -e 's/^pyopenssl==21\.0\.0 ; python_version < '\''3\.12'\''.*/pyopenssl==24.1.0 ; python_version < '\''3\.12'\''/' \
-            -e 's/^urllib3==1\.26\.5 ; python_version < '\''3\.12'\''.*/urllib3==2.0.7 ; python_version < '\''3\.12'\''/' \
-            -e 's/^requests==2\.25\.1 ;  python_version < '\''3\.11'\''.*/requests==2.31.0 ;  python_version < '\''3\.11'\''/' \
-            /opt/odoo/requirements.txt; \
-    fi && \
-    uv pip install -r /opt/odoo/requirements.txt && \
-    uv pip install /opt/odoo && \
-    echo "${ODOO_VERSION}|${ODOO_BUILD}" > /opt/odoo/.build_version
-
-# ============================================
-# 7. EXTRA PYTHON DEPENDENCIES
-# ============================================
-RUN uv pip install \
-    dbfread \
-    ebaysdk \
-    firebase_admin \
-    num2words \
-    ofxparse \
-    packaging \
-    pdfminer.six \
-    phonenumbers
-
-# ============================================
-# 8. WEB TERMINAL
-# ============================================
-COPY .data/web-terminal /opt/web-terminal
-WORKDIR /opt/web-terminal
-RUN uv pip install gyp-next && npm install && npm run build && \
-    cp node_modules/@xterm/xterm/css/xterm.css public/
-WORKDIR /
-
-# ============================================
-# 9. STRUCTURE & PERMISSIONS
-# ============================================
+# docker-compose.yml mounts .data/docker/odoo at /opt/env/odoo, .data/scripts
+# at /opt/env/scripts (linked into /usr/local/bin by the entrypoint) and
+# .data/web-terminal at /opt/web-terminal: editing them needs no rebuild (the
+# image revision in the tag only covers this Dockerfile).
 RUN mkdir -p /mnt/extra-addons && chown -R odoo /mnt/extra-addons
+VOLUME ["/var/lib/odoo"]
+EXPOSE 8069 8072 7681
 
-# ============================================
-# 10. ENTRYPOINT & SCRIPTS
-# ============================================
-COPY .data/docker/odoo/entrypoint.sh /entrypoint.sh
-COPY .data/scripts/dev_db_bootstrap.sh \
-     .data/scripts/check_modules.sh \
-     .data/scripts/check_requirements.sh \
-     .data/scripts/check_iot.sh \
-     .data/scripts/check_iot_setup.sh \
-     .data/scripts/generate_addons_path.sh \
-     .data/scripts/odoo_header.sh \
-     .data/scripts/hex_to_ansi.sh \
-     .data/scripts/expand_modules.sh \
-     .data/scripts/tmux_setup.sh \
-     .data/scripts/webterm_env.sh \
-     /usr/local/bin/
-RUN chmod +x /entrypoint.sh /usr/local/bin/*.sh
-
-# ============================================
-# 11. VOLUMES & PORTS
-# ============================================
-VOLUME ["/var/lib/odoo", "/mnt/extra-addons", "/var/log/odoo"]
-EXPOSE 8069 8071 8072 7681
-
-ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/bin/bash", "/opt/env/odoo/entrypoint.sh"]

@@ -2,534 +2,273 @@
 # ============================================================================
 # upgrade-code - Migrate module code using OCA + Odoo official + custom scripts
 # ============================================================================
+# Usage: upgrade-code --from VERSION [--to VERSION] [--module A,B] [--dry-run] [-f] [-a]
+# ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
+PANE=always   # long: runs in a side pane of the utils terminal
 
-_odoo_upgrade_code_dirs=(
-    /mnt/odoo-src/odoo/upgrade_code
-    /opt/odoo/odoo/upgrade_code
-    /opt/venv/lib/python*/site-packages/odoo/upgrade_code
-    /opt/pyenv/versions/*/lib/python*/site-packages/odoo/upgrade_code
-)
-
-list_odoo_upgrade_scripts() {
-    local container="$1"
-    local dirs_shell
-    dirs_shell=$(printf ' "%s"' "${_odoo_upgrade_code_dirs[@]}")
-    docker exec "$container" bash -c "
-        shopt -s nullglob
-        dirs=(${dirs_shell})
-        declare -A seen=()
-        for dir in \"\${dirs[@]}\"; do
-            [ -d \"\$dir\" ] || continue
-            for f in \"\$dir\"/*.py; do
-                base=\$(basename \"\$f\" .py)
-                [[ \"\$base\" == __* ]] && continue
-                seen[\$base]=1
-            done
-        done
-        printf '%s\n' \"\${!seen[@]}\" | sort
-    " 2>/dev/null
-}
-
-resolve_odoo_upgrade_code_dir() {
-    local container="$1"
-    local dirs_shell
-    dirs_shell=$(printf ' "%s"' "${_odoo_upgrade_code_dirs[@]}")
-    docker exec "$container" bash -c "
-        shopt -s nullglob
-        dirs=(${dirs_shell})
-        for dir in \"\${dirs[@]}\"; do
-            [ -d \"\$dir\" ] && echo \"\$dir\" && exit 0
-        done
-        python3 -c \"import odoo; from pathlib import Path; p=Path(odoo.__path__[0])/'upgrade_code'; print(p if p.is_dir() else '')\" 2>/dev/null
-    " 2>/dev/null | head -1
-}
+ADDONS_ROOT="/mnt/extra-addons"
+CUSTOM_DIR="/opt/migration_scripts"   # .data/migration_scripts, mounted read-only
+# Where Odoo ships its upgrade_code scripts (the mounted source first, then the image)
+ODOO_UPGRADE_DIRS=(/mnt/odoo-src/odoo/upgrade_code /opt/odoo/odoo/upgrade_code "/opt/venv/lib/python*/site-packages/odoo/upgrade_code")
 
 show_help() {
-    echo ""
-    echo "upgrade-code - Migrate module code"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       upgrade-code --from VERSION [OPTIONS]"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       --from VERSION    Source Odoo version (required)"
-    echo "       --to VERSION      Target version (default: 19.0)"
-    echo "       --module NAME     Migrate specific module(s)"
-    echo "       --dry-run         Preview changes without applying"
-    echo "       -f, --force       Run all tools without confirmation"
-    echo "       -a, --all-files   Migrate all paths/modules without selection"
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       upgrade-code --from 16.0"
-    echo "       upgrade-code --from 16.0 --force"
-    echo "       upgrade-code --from 18.0 --module my_module"
-    echo ""
+    h_name "upgrade-code" "Migrate module source code to a newer Odoo version"
+    h_sec "USAGE"
+    h_use "upgrade-code --from VERSION [options]"
+    h_sec "OPTIONS"
+    h_opt "--from VERSION" "Source Odoo version (required, e.g. 16.0)"
+    h_opt "--to VERSION" "Target version (default: ODOO_VERSION)"
+    h_opt "--module A,B" "Only these modules (comma-separated)"
+    h_opt "--dry-run" "Show what would change, modify nothing"
+    h_opt "-f, --force" "Run every tool, no questions"
+    h_opt "-a, --all-files" "All addon paths and modules, no picker"
+    h_sec "TOOLS"
+    h_opt "OCA odoo-module-migrator" "Imports, manifest keys, version bump"
+    h_opt "odoo upgrade_code" "Official scripts shipped with Odoo (19.0+)"
+    h_opt ".data/migration_scripts" "Your own upgrade_code scripts"
+    h_sec "DESCRIPTION"
+    h_text "Requires the odoo container to run Odoo 19.0+. Manifests are bumped"
+    h_text "to <to>.0.0 and pre-commit can be run at the end. Some changes stay"
+    h_text "manual (attrs/states, kanban templates...) — a reminder is printed."
+    h_sec "EXAMPLES"
+    h_ex "upgrade-code --from 16.0" ""
+    h_ex "upgrade-code --from 17.0 --module my_module --dry-run" ""
+    h_ex "upgrade-code --from 16.0 -f -a" "Everything"
+    h_global
+    h_end
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
-    exit 0
-fi
-
-ODOO_VER="${ODOO_VERSION}"
-if [[ ! "$ODOO_VER" =~ ^19\. ]]; then
-    printf "${CERROR}❌ upgrade-code requires Odoo 19.0+${RST}\n"
-    exit 1
-fi
-
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
 FROM_VERSION=""
-TO_VERSION="19.0"
-MODULE=""
+TO_VERSION="${ODOO_VERSION:-19.0}"
+MODULES=""
 DRY_RUN=false
 FORCE=false
 ALL_FILES=false
-
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --from) FROM_VERSION="$2"; shift 2 ;;
-        --to) TO_VERSION="$2"; shift 2 ;;
-        --module) MODULE="$2"; shift 2 ;;
+        -h|--help) show_help; exit 0 ;;
+        --from) FROM_VERSION="${2:-}"; [ -z "$FROM_VERSION" ] && die "--from needs a version"; shift 2 ;;
+        --to) TO_VERSION="${2:-}"; [ -z "$TO_VERSION" ] && die "--to needs a version"; shift 2 ;;
+        --module) MODULES="${2:-}"; [ -z "$MODULES" ] && die "--module needs a name"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         -f|--force) FORCE=true; shift ;;
         -a|--all-files) ALL_FILES=true; shift ;;
-        *) printf "${CERROR}❌ Unknown option: $1${RST}\n"; show_help; exit 1 ;;
+        *) die "Unknown option: $1" "See: upgrade-code --help" ;;
     esac
 done
+[ -z "$FROM_VERSION" ] && die "--from VERSION is required" "Example: upgrade-code --from 16.0"
+[[ "$FROM_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || die "Invalid --from version: $FROM_VERSION" "Expected e.g. 16.0"
+[[ "${ODOO_VERSION:-}" =~ ^(19|[2-9][0-9])\. ]] || die "upgrade-code needs Odoo 19.0+ in the odoo container (ODOO_VERSION=${ODOO_VERSION:-?})"
+$FORCE && ASSUME_YES=true
+DRY_FLAG=""; $DRY_RUN && DRY_FLAG="--dry-run"
 
-if [ -z "$FROM_VERSION" ]; then
-    show_help
-    exit 0
+require_odoo_container
+docker exec "$ODOO_CONTAINER" test -d "$ADDONS_ROOT" 2>/dev/null || die "No addons mounted in the Odoo container"
+open_pane
+
+in_odoo() { docker exec "$ODOO_CONTAINER" "$@"; }
+# Scripts of Odoo's upgrade_code folders (names without .py), one per line
+odoo_scripts() {
+    in_odoo bash -c 'shopt -s nullglob; for d in '"${ODOO_UPGRADE_DIRS[*]}"'; do for f in "$d"/[!_]*.py; do basename "$f" .py; done; done | sort -u' 2>/dev/null
+}
+# First writable upgrade_code folder: custom scripts are copied there to run
+odoo_upgrade_dir() {
+    in_odoo bash -c 'shopt -s nullglob; for d in '"${ODOO_UPGRADE_DIRS[*]}"'; do [ -d "$d" ] && [ -w "$d" ] && { echo "$d"; exit 0; }; done; exit 1' 2>/dev/null
+}
+# Run 'odoo upgrade_code ARGS' once per selected module (or once for everything),
+# print the changed addon files; returns 0 when something changed
+run_upgrade_code() {
+    local out changed=1 glob
+    local -a globs=()
+    [ -n "$MODULES" ] && for m in ${MODULES//,/ }; do globs+=("--glob" "${m}/**/*"); done
+    [ ${#globs[@]} -eq 0 ] && globs=("--glob" "**/*")
+    for ((i = 0; i < ${#globs[@]}; i += 2)); do
+        out=$(in_odoo odoo upgrade_code "$@" --addons-path "$(IFS=,; echo "${SELECTED_PATHS[*]}")" "${globs[i]}" "${globs[i+1]}" $DRY_FLAG 2>&1) || { echo "$out" | tail -5 | sed 's/^/    /' >&2; return 2; }
+        glob=$(echo "$out" | grep "^${ADDONS_ROOT}" || true)
+        [ -n "$glob" ] && { echo "$glob" | sed "s|^${ADDONS_ROOT}/|    |"; changed=0; }
+    done
+    return $changed
+}
+
+# ============================================================================
+# Addon paths and modules
+# ============================================================================
+mapfile -t DETECTED_PATHS < <(in_odoo /usr/local/bin/generate_addons_path.sh 2>/dev/null | tr ',' '\n' | grep -v '^$')
+SELECTED_PATHS=("$ADDONS_ROOT")
+if [ ${#DETECTED_PATHS[@]} -eq 1 ] || $ALL_FILES; then
+    [ ${#DETECTED_PATHS[@]} -gt 0 ] && SELECTED_PATHS=("${DETECTED_PATHS[@]}")
+elif [ ${#DETECTED_PATHS[@]} -gt 1 ]; then
+    ui_section "Select addon paths (${#DETECTED_PATHS[@]} detected)"
+    pick_many "Select paths" "${DETECTED_PATHS[@]}" || exit 1
+    SELECTED_PATHS=("${PICKED_ITEMS[@]}")
+    echo
 fi
-
-CONTAINER="$ODOO_CONTAINER"
-
-if ! docker exec "$CONTAINER" test -d /mnt/extra-addons 2>/dev/null; then
-    printf "${CERROR}❌ Odoo container not running${RST}\n"
-    exit 1
-fi
-
-DRY_FLAG=""
-[ "$DRY_RUN" = true ] && DRY_FLAG="--dry-run"
-
-# ============================================================================
-# PATH & MODULE DETECTION
-# ============================================================================
-# Use generate_addons_path.sh logic to detect addon paths
-DETECTED_PATHS=$(docker exec "$CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null | tr ',' '\n' | grep -v "^$")
-SELECTED_PATHS="/mnt/extra-addons"
-
-# Check if we have multiple paths (subfolders structure)
-PATH_COUNT=$(echo "$DETECTED_PATHS" | grep -c "/" || echo "0")
-
-if [ "$PATH_COUNT" -gt 1 ] && [ "$ALL_FILES" = false ]; then
-    echo ""
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CPRIMARY}  Select addon paths ($PATH_COUNT detected)${RST}\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-    i=1
-    declare -A PATH_MAP
-    while IFS= read -r path; do
-        [ -z "$path" ] && continue
-        path_name=$(basename "$path")
-        printf "    ${CSUCCESS}%2d.${RST} %s\n" "$i" "$path_name"
-        PATH_MAP[$i]="$path"
-        ((i++))
-    done <<< "$DETECTED_PATHS"
-
-    echo ""
-    printf "  Select paths (1,2,3 / all) [all]: "
-    read -r PATH_CHOICE
-
-    if [ -n "$PATH_CHOICE" ] && [ "$PATH_CHOICE" != "all" ]; then
-        SELECTED_PATHS=""
-        IFS=',' read -ra NUMS <<< "$PATH_CHOICE"
-        for num in "${NUMS[@]}"; do
-            num=$(echo "$num" | tr -d ' ')
-            [ -n "${PATH_MAP[$num]}" ] && SELECTED_PATHS="$SELECTED_PATHS ${PATH_MAP[$num]}"
-        done
-        SELECTED_PATHS=$(echo "$SELECTED_PATHS" | xargs)
-    else
-        SELECTED_PATHS=$(echo "$DETECTED_PATHS" | tr '\n' ' ' | xargs)
-    fi
-elif [ "$PATH_COUNT" -eq 1 ]; then
-    SELECTED_PATHS="$DETECTED_PATHS"
-fi
-
-# ============================================================================
-# MODULE SELECTION (if no --module provided)
-# ============================================================================
-if [ -z "$MODULE" ] && [ "$ALL_FILES" = false ]; then
-    # Find all modules in selected paths
-    ALL_MODULES=$(docker exec "$CONTAINER" find $SELECTED_PATHS -maxdepth 2 -name "__manifest__.py" -type f 2>/dev/null | xargs -I{} dirname {} | sort -u)
-    MODULE_COUNT=$(echo "$ALL_MODULES" | grep -c "/" || echo "0")
-
-    if [ "$MODULE_COUNT" -gt 0 ]; then
-        echo ""
-        printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-        printf "${CPRIMARY}  Select modules to migrate ($MODULE_COUNT available)${RST}\n"
-        printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-        i=1
-        declare -A MODULE_MAP
-        declare -A MODULE_NAME_MAP
-        while IFS= read -r mod_path; do
-            [ -z "$mod_path" ] && continue
-            mod_name=$(basename "$mod_path")
-            # Show relative path from /mnt/extra-addons
-            rel_path=${mod_path#/mnt/extra-addons/}
-            printf "    ${CSUCCESS}%2d.${RST} %s\n" "$i" "$rel_path"
-            MODULE_MAP[$i]="$mod_path"
-            MODULE_NAME_MAP[$i]="$mod_name"
-            ((i++))
-        done <<< "$ALL_MODULES"
-
-        echo ""
-        printf "  Select modules (1,2,3 / all) [all]: "
-        read -r MOD_CHOICE
-
-        if [ -n "$MOD_CHOICE" ] && [ "$MOD_CHOICE" != "all" ]; then
-            SELECTED_PATHS=""
-            MODULE=""
-            IFS=',' read -ra NUMS <<< "$MOD_CHOICE"
-            for num in "${NUMS[@]}"; do
-                num=$(echo "$num" | tr -d ' ')
-                [ -n "${MODULE_MAP[$num]}" ] && SELECTED_PATHS="$SELECTED_PATHS ${MODULE_MAP[$num]}"
-                [ -n "${MODULE_NAME_MAP[$num]}" ] && MODULE="$MODULE,${MODULE_NAME_MAP[$num]}"
-            done
-            SELECTED_PATHS=$(echo "$SELECTED_PATHS" | xargs)
-            MODULE=$(echo "$MODULE" | sed 's/^,//')
-        fi
+if [ -z "$MODULES" ] && ! $ALL_FILES; then
+    mapfile -t FOUND < <(in_odoo find "${SELECTED_PATHS[@]}" -maxdepth 2 -name "__manifest__.py" -type f 2>/dev/null | xargs -r -n1 dirname | sort -u)
+    if [ ${#FOUND[@]} -gt 0 ]; then
+        ui_section "Select modules to migrate (${#FOUND[@]} available)"
+        pick_many "Select modules" "${FOUND[@]#${ADDONS_ROOT}/}" || exit 1
+        [ ${#PICKED_ITEMS[@]} -lt ${#FOUND[@]} ] && MODULES=$(printf '%s\n' "${PICKED_ITEMS[@]##*/}" | paste -sd, -)
+        echo
     fi
 fi
 
-echo ""
-printf "${CPRIMARY}═══════════════════════════════════════════════════════════════${RST}\n"
-[ "$DRY_RUN" = true ] && printf "${CPRIMARY}  UPGRADE CODE - DRY RUN${RST}\n" || printf "${CPRIMARY}  UPGRADE CODE${RST}\n"
-printf "${CPRIMARY}═══════════════════════════════════════════════════════════════${RST}\n"
-echo ""
-printf "  From: ${CWARN}$FROM_VERSION${RST} → To: ${CSUCCESS}$TO_VERSION${RST}\n"
-[ -n "$MODULE" ] && printf "  Module(s): ${CWARN}$MODULE${RST}\n"
-[ "$SELECTED_PATHS" != "/mnt/extra-addons" ] && printf "  Paths: ${CWARN}$SELECTED_PATHS${RST}\n"
-echo ""
+if $DRY_RUN; then ui_title "Upgrade code" "DRY RUN — nothing is modified"; else ui_title "Upgrade code"; fi
+ui_kv "From → to" "${FROM_VERSION} → ${TO_VERSION}"
+[ -n "$MODULES" ] && ui_kv "Module(s)" "${MODULES//,/, }"
+[ "${SELECTED_PATHS[*]}" != "$ADDONS_ROOT" ] && ui_kv "Paths" "${SELECTED_PATHS[*]#${ADDONS_ROOT}/}"
+echo
 
 # ============================================================================
-# TOOL SELECTION
+# Tools
 # ============================================================================
-USE_OCA=false
-USE_ODOO=false
-USE_CUSTOM=false
-ODOO_SCRIPTS=()
+USE_OCA=false; USE_ODOO=false
+ODOO_SCRIPTS=()     # empty with USE_ODOO=true = every script (--from/--to)
 CUSTOM_SCRIPTS=()
-
-if [ "$FORCE" = true ]; then
-    USE_OCA=true
-    USE_ODOO=true
-    USE_CUSTOM=true
-    # Load all custom scripts
-    CUSTOM_AVAILABLE=$(docker exec "$CONTAINER" find /opt/migration_scripts -maxdepth 1 -name "*.py" -type f 2>/dev/null | sort)
-    while IFS= read -r script; do
-        [ -n "$script" ] && CUSTOM_SCRIPTS+=("$script")
-    done <<< "$CUSTOM_AVAILABLE"
+mapfile -t CUSTOM_AVAILABLE < <(in_odoo find "$CUSTOM_DIR" -maxdepth 1 -name "*.py" -type f 2>/dev/null | sort)
+if $FORCE; then
+    USE_OCA=true; USE_ODOO=true
+    CUSTOM_SCRIPTS=("${CUSTOM_AVAILABLE[@]}")
 else
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CPRIMARY}  Select tools to run${RST}\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
+    [ -t 0 ] || die "The tool selection needs a terminal" "Use: -f (run every tool)"
+    ui_section "Select tools to run"
+    printf "  ${CPRIMARY}1. OCA odoo-module-migrator${RST}  ${CMUTED}imports, manifest keys, version bump${RST}\n"
+    confirm "Use OCA?" && USE_OCA=true
+    echo
 
-    # OCA
-    printf "  ${CPRIMARY}1. OCA odoo-module-migrator${RST}\n"
-    printf "     Imports, __openerp__→__manifest__, version bump\n"
-    printf "     Use OCA? [Y/n]: "
-    read -r OCA_CHOICE
-    [[ -z "$OCA_CHOICE" || "$OCA_CHOICE" =~ ^[Yy] ]] && USE_OCA=true
-    echo ""
-
-    # Odoo official - list scripts
     printf "  ${CPRIMARY}2. Odoo official upgrade_code${RST}\n"
-    ODOO_AVAILABLE=$(list_odoo_upgrade_scripts "$CONTAINER")
-
-    if [ -n "$ODOO_AVAILABLE" ]; then
-        printf "     Available scripts:\n"
-        i=1
-        declare -A ODOO_SCRIPT_MAP
-        while IFS= read -r script; do
-            [ -z "$script" ] && continue
-            printf "       ${CSUCCESS}%2d.${RST} %s\n" "$i" "$script"
-            ODOO_SCRIPT_MAP[$i]="$script"
-            ((i++))
-        done <<< "$ODOO_AVAILABLE"
-
-        printf "     Select (1,2,3 / all / none) [all]: "
-        read -r ODOO_CHOICE
-
-        if [ -z "$ODOO_CHOICE" ] || [ "$ODOO_CHOICE" = "all" ]; then
+    mapfile -t ODOO_AVAILABLE < <(odoo_scripts)
+    if [ ${#ODOO_AVAILABLE[@]} -gt 0 ]; then
+        if confirm "Run the official scripts?"; then
             USE_ODOO=true
-        elif [ "$ODOO_CHOICE" != "none" ]; then
-            USE_ODOO=true
-            IFS=',' read -ra NUMS <<< "$ODOO_CHOICE"
-            for num in "${NUMS[@]}"; do
-                num=$(echo "$num" | tr -d ' ')
-                [ -n "${ODOO_SCRIPT_MAP[$num]}" ] && ODOO_SCRIPTS+=("${ODOO_SCRIPT_MAP[$num]}")
-            done
+            pick_many "Select scripts" "${ODOO_AVAILABLE[@]}" || exit 1
+            [ ${#PICKED_ITEMS[@]} -lt ${#ODOO_AVAILABLE[@]} ] && ODOO_SCRIPTS=("${PICKED_ITEMS[@]}")
         fi
     else
-        printf "     ${CWARN}No scripts available${RST}\n"
+        ui_note "no script available"
     fi
-    echo ""
+    echo
 
-    # Custom scripts
-    printf "  ${CACCENT}3. Custom migration scripts${RST}\n"
-    CUSTOM_AVAILABLE=$(docker exec "$CONTAINER" find /opt/migration_scripts -maxdepth 1 -name "*.py" -type f 2>/dev/null | sort)
-
-    if [ -n "$CUSTOM_AVAILABLE" ]; then
-        printf "     Available scripts:\n"
-        i=1
-        declare -A CUSTOM_SCRIPT_MAP
-        while IFS= read -r script; do
-            [ -z "$script" ] && continue
-            script_name=$(basename "$script")
-            desc=$(docker exec "$CONTAINER" grep -m1 '"""' "$script" 2>/dev/null | sed 's/.*"""\(.*\)""".*/\1/')
-            [ -z "$desc" ] && desc="No description"
-            printf "       ${CSUCCESS}%2d.${RST} %s\n" "$i" "$script_name"
-            printf "           ${CWARN}%s${RST}\n" "$desc"
-            CUSTOM_SCRIPT_MAP[$i]="$script"
-            ((i++))
-        done <<< "$CUSTOM_AVAILABLE"
-
-        printf "     Select (1,2,3 / all / none) [all]: "
-        read -r CUSTOM_CHOICE
-
-        if [ -z "$CUSTOM_CHOICE" ] || [ "$CUSTOM_CHOICE" = "all" ]; then
-            USE_CUSTOM=true
-            while IFS= read -r script; do
-                [ -n "$script" ] && CUSTOM_SCRIPTS+=("$script")
-            done <<< "$CUSTOM_AVAILABLE"
-        elif [ "$CUSTOM_CHOICE" != "none" ]; then
-            USE_CUSTOM=true
-            IFS=',' read -ra NUMS <<< "$CUSTOM_CHOICE"
-            for num in "${NUMS[@]}"; do
-                num=$(echo "$num" | tr -d ' ')
-                [ -n "${CUSTOM_SCRIPT_MAP[$num]}" ] && CUSTOM_SCRIPTS+=("${CUSTOM_SCRIPT_MAP[$num]}")
-            done
+    printf "  ${CPRIMARY}3. Custom migration scripts${RST}  ${CMUTED}.data/migration_scripts${RST}\n"
+    if [ ${#CUSTOM_AVAILABLE[@]} -gt 0 ]; then
+        if confirm "Run your custom scripts?"; then
+            pick_many "Select scripts" "${CUSTOM_AVAILABLE[@]##*/}" || exit 1
+            CUSTOM_SCRIPTS=("${PICKED_ITEMS[@]/#/${CUSTOM_DIR}/}")
         fi
     else
-        printf "     ${CWARN}No custom scripts found${RST}\n"
+        ui_note "no custom script in .data/migration_scripts"
     fi
-    echo ""
+    echo
 fi
 
-OCA_DONE=false
-ODOO_DONE=false
-CUSTOM_DONE=false
-VERSION_DONE=false
+OCA_DONE=false; ODOO_DONE=false; CUSTOM_DONE=false; VERSION_DONE=false
 
 # ============================================================================
 # 1. OCA odoo-module-migrator
 # ============================================================================
-if [ "$USE_OCA" = true ]; then
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CPRIMARY}  ▶ OCA odoo-module-migrator${RST}\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-    docker exec "$CONTAINER" pip install --upgrade odoo-module-migrator --quiet 2>/dev/null
-
-    OCA_HELP=$(docker exec "$CONTAINER" odoo-module-migrate --help 2>&1)
-    OCA_MAX=$(echo "$OCA_HELP" | grep -oP '\d+\.\d+' | sort -V | tail -1)
-    [ -z "$OCA_MAX" ] && OCA_MAX="18.0"
-
+if $USE_OCA; then
+    ui_section "OCA odoo-module-migrator"
+    in_odoo pip install --upgrade odoo-module-migrator --quiet 2>/dev/null
+    OCA_MAX=$(in_odoo odoo-module-migrate --help 2>&1 | grep -oP '\d+\.\d+' | sort -V | tail -1)
     OCA_TARGET="$TO_VERSION"
-    [[ "$TO_VERSION" > "$OCA_MAX" ]] && OCA_TARGET="$OCA_MAX"
-
-    printf "  Target: $OCA_TARGET\n\n"
-
-    # OCA needs to run per directory (doesn't support multiple paths)
-    for OCA_PATH in $SELECTED_PATHS; do
-        printf "  ${CPRIMARY}▶${RST} $(basename "$OCA_PATH")\n"
-
-        OCA_CMD="odoo-module-migrate --directory $OCA_PATH"
-        OCA_CMD="$OCA_CMD --init-version-name $FROM_VERSION"
-        OCA_CMD="$OCA_CMD --target-version-name $OCA_TARGET"
-        OCA_CMD="$OCA_CMD --no-commit"
-        [ -n "$MODULE" ] && OCA_CMD="$OCA_CMD --modules $MODULE"
-
-        if [ "$DRY_RUN" = true ]; then
-            printf "    ${CWARN}[DRY-RUN]${RST} Would run: $OCA_CMD\n"
-        else
-            docker exec "$CONTAINER" bash -c "$OCA_CMD" 2>&1 | sed 's/^/    /'
-        fi
-        echo ""
+    [ -n "$OCA_MAX" ] && [[ "$TO_VERSION" > "$OCA_MAX" ]] && OCA_TARGET="$OCA_MAX"
+    ui_kv "Target" "$OCA_TARGET"; echo
+    for OCA_PATH in "${SELECTED_PATHS[@]}"; do   # one directory per run
+        ui_step "${OCA_PATH#${ADDONS_ROOT}/}"
+        OCA_CMD=(odoo-module-migrate --directory "$OCA_PATH" --init-version-name "$FROM_VERSION" --target-version-name "$OCA_TARGET" --no-commit)
+        [ -n "$MODULES" ] && OCA_CMD+=(--modules "$MODULES")
+        if $DRY_RUN; then ui_note "[dry-run] ${OCA_CMD[*]}"
+        else in_odoo "${OCA_CMD[@]}" 2>&1 | sed 's/^/    /'; fi
+        echo
     done
-    printf "  ${CSUCCESS}✓${RST} OCA completed\n"
-    [ "$DRY_RUN" = false ] && OCA_DONE=true
-    echo ""
+    ui_ok "OCA completed"
+    $DRY_RUN || OCA_DONE=true
+    echo
 fi
 
 # ============================================================================
 # 2. Odoo official upgrade_code
 # ============================================================================
-if [ "$USE_ODOO" = true ]; then
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CPRIMARY}  ▶ Odoo official upgrade_code${RST}\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-    ODOO_FROM="$FROM_VERSION"
-    [[ "$FROM_VERSION" < "17.5" ]] && ODOO_FROM="17.5"
-
-    ADDONS_PATH_ARG=$(echo "$SELECTED_PATHS" | tr ' ' ',')
-
+if $USE_ODOO; then
+    ui_section "Odoo official upgrade_code"
     if [ ${#ODOO_SCRIPTS[@]} -gt 0 ]; then
-        # Run selected scripts only
         for script in "${ODOO_SCRIPTS[@]}"; do
-            printf "  ${CPRIMARY}▶${RST} $script\n"
-            ODOO_CMD="odoo upgrade_code --script '$script' --addons-path $ADDONS_PATH_ARG"
-            [ -n "$MODULE" ] && ODOO_CMD="$ODOO_CMD --glob '$(echo "$MODULE" | cut -d',' -f1)/**/*'"
-
-            OUTPUT=$(docker exec "$CONTAINER" bash -c "$ODOO_CMD $DRY_FLAG" 2>&1)
-            FILTERED=$(echo "$OUTPUT" | grep "^/mnt" || true)
-
-            if [ -n "$FILTERED" ]; then
-                echo "$FILTERED" | sed "s|^/mnt/extra-addons/||" | sed "s|^|    |"
-                [ "$DRY_RUN" = false ] && ODOO_DONE=true
-            else
-                printf "    ${CSUCCESS}✓${RST} No changes\n"
-            fi
+            ui_step "$script"
+            if run_upgrade_code --script "$script"; then $DRY_RUN || ODOO_DONE=true; else ui_note "no change"; fi
         done
     else
-        # Run all (no --script)
-        ODOO_CMD="odoo upgrade_code"
-        ODOO_CMD="$ODOO_CMD --from $ODOO_FROM --to $TO_VERSION"
-        ODOO_CMD="$ODOO_CMD --addons-path $ADDONS_PATH_ARG"
-        [ -n "$MODULE" ] && ODOO_CMD="$ODOO_CMD --glob '$(echo "$MODULE" | cut -d',' -f1)/**/*'"
-
-        OUTPUT=$(docker exec "$CONTAINER" bash -c "$ODOO_CMD $DRY_FLAG" 2>&1)
-        FILTERED=$(echo "$OUTPUT" | grep "^/mnt" || true)
-
-        if [ -n "$FILTERED" ]; then
-            echo "$FILTERED" | sed "s|^/mnt/extra-addons/||" | sed "s|^|  |"
-            FILE_COUNT=$(echo "$FILTERED" | wc -l)
-            printf "\n  ${CSUCCESS}✓${RST} $FILE_COUNT file(s)\n"
-            [ "$DRY_RUN" = false ] && ODOO_DONE=true
-        else
-            printf "  ${CSUCCESS}✓${RST} No changes needed\n"
-        fi
+        ODOO_FROM="$FROM_VERSION"
+        [[ "$FROM_VERSION" < "17.5" ]] && ODOO_FROM="17.5"   # oldest version the scripts know
+        if run_upgrade_code --from "$ODOO_FROM" --to "$TO_VERSION"; then $DRY_RUN || ODOO_DONE=true; else ui_note "no change needed"; fi
     fi
-    echo ""
+    echo
 fi
 
 # ============================================================================
 # 3. Custom migration scripts
 # ============================================================================
-if [ "$USE_CUSTOM" = true ] && [ ${#CUSTOM_SCRIPTS[@]} -gt 0 ]; then
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CACCENT}  ▶ Custom migration scripts${RST}\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-    ODOO_UPGRADE_DIR=$(resolve_odoo_upgrade_code_dir "$CONTAINER")
-    ADDONS_PATH_ARG=$(echo "$SELECTED_PATHS" | tr ' ' ',')
-
+if [ ${#CUSTOM_SCRIPTS[@]} -gt 0 ]; then
+    ui_section "Custom migration scripts"
+    UPGRADE_DIR=$(odoo_upgrade_dir) || die "No writable upgrade_code folder in the odoo container" "Custom scripts run from Odoo's own folder (/opt/odoo/odoo/upgrade_code)"
     for script in "${CUSTOM_SCRIPTS[@]}"; do
-        script_name=$(basename "$script")
-        printf "  ${CPRIMARY}▶${RST} $script_name\n\n"
-
-        docker exec "$CONTAINER" cp "$script" "$ODOO_UPGRADE_DIR/$script_name" 2>/dev/null
-
-        SCRIPT_CMD="odoo upgrade_code --script '$script_name' --addons-path $ADDONS_PATH_ARG"
-        [ -n "$MODULE" ] && SCRIPT_CMD="$SCRIPT_CMD --glob '$(echo "$MODULE" | cut -d',' -f1)/**/*'"
-
-        OUTPUT=$(docker exec "$CONTAINER" bash -c "$SCRIPT_CMD $DRY_FLAG" 2>&1)
-
-        docker exec "$CONTAINER" rm -f "$ODOO_UPGRADE_DIR/$script_name" 2>/dev/null
-
-        # Filter only paths within selected addons (not odoo standard)
-        FILTERED=$(echo "$OUTPUT" | grep "^/mnt" || true)
-        if [ -n "$FILTERED" ]; then
-            echo "$FILTERED" | sed "s|^/mnt/extra-addons/||" | sed "s|^|  |"
-            FILE_COUNT=$(echo "$FILTERED" | wc -l)
-            printf "\n  ${CSUCCESS}✓${RST} $FILE_COUNT file(s)\n"
-            [ "$DRY_RUN" = false ] && CUSTOM_DONE=true
-        else
-            printf "  ${CSUCCESS}✓${RST} No changes needed\n"
-        fi
-        echo ""
+        name=$(basename "$script")
+        ui_step "$name"
+        in_odoo cp "$script" "$UPGRADE_DIR/$name" || die "Cannot copy $name to $UPGRADE_DIR"
+        if run_upgrade_code --script "${name%.py}"; then $DRY_RUN || CUSTOM_DONE=true; else ui_note "no change needed"; fi
+        in_odoo rm -f "$UPGRADE_DIR/$name"
+        echo
     done
-    echo ""
 fi
 
 # ============================================================================
-# 4. Bump manifest versions
+# 4. Manifest versions
 # ============================================================================
-if [ "$DRY_RUN" = false ]; then
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CSUCCESS}  ▶ Bumping manifest versions → ${TO_VERSION}.0.0${RST}\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-    if [ -n "$MODULE" ]; then
-        MANIFESTS=$(docker exec "$CONTAINER" find $SELECTED_PATHS -path "*/$MODULE/__manifest__.py" -type f 2>/dev/null)
-    else
-        MANIFESTS=$(docker exec "$CONTAINER" find $SELECTED_PATHS -name "__manifest__.py" -type f 2>/dev/null)
+if ! $DRY_RUN; then
+    ui_section "Bumping manifest versions → ${TO_VERSION}.0.0"
+    FIND_ARGS=(-name "__manifest__.py" -type f)
+    if [ -n "$MODULES" ]; then
+        FIND_ARGS=("(" -false); for m in ${MODULES//,/ }; do FIND_ARGS+=(-o -path "*/$m/__manifest__.py"); done; FIND_ARGS+=(")" -type f)
     fi
-
     BUMP_COUNT=0
     while IFS= read -r manifest; do
         [ -z "$manifest" ] && continue
-        module_name=$(dirname "$manifest" | xargs basename)
-        docker exec "$CONTAINER" sed -i "s/['\"]version['\"]\s*:\s*['\"][^'\"]*['\"]/\"version\": \"${TO_VERSION}.0.0\"/" "$manifest" 2>/dev/null
-        printf "  ${CSUCCESS}✓${RST} $module_name\n"
+        in_odoo sed -i "s/['\"]version['\"]\s*:\s*['\"][^'\"]*['\"]/\"version\": \"${TO_VERSION}.0.0\"/" "$manifest" 2>/dev/null
+        ui_ok "$(basename "$(dirname "$manifest")")"
         ((BUMP_COUNT++))
-    done <<< "$MANIFESTS"
-
+    done < <(in_odoo find "${SELECTED_PATHS[@]}" "${FIND_ARGS[@]}" 2>/dev/null)
     [ $BUMP_COUNT -gt 0 ] && VERSION_DONE=true
-    printf "\n  Updated $BUMP_COUNT manifest(s)\n"
-    echo ""
+    echo; ui_note "$BUMP_COUNT manifest(s) updated"; echo
 fi
 
 # ============================================================================
-# SUMMARY
+# Summary
 # ============================================================================
-printf "${CPRIMARY}═══════════════════════════════════════════════════════════════${RST}\n"
-printf "${CPRIMARY}  SUMMARY${RST}\n"
-printf "${CPRIMARY}═══════════════════════════════════════════════════════════════${RST}\n\n"
-
-if [ "$DRY_RUN" = true ]; then
-    printf "  ${CWARN}DRY-RUN MODE${RST} - No changes applied\n"
+ui_section "Summary"
+if $DRY_RUN; then
+    ui_warn "Dry run — no change applied"
 else
-    [ "$OCA_DONE" = true ] && printf "  ${CSUCCESS}✓${RST} OCA\n"
-    [ "$ODOO_DONE" = true ] && printf "  ${CSUCCESS}✓${RST} Odoo\n"
-    [ "$CUSTOM_DONE" = true ] && printf "  ${CSUCCESS}✓${RST} Custom\n"
-    [ "$VERSION_DONE" = true ] && printf "  ${CSUCCESS}✓${RST} Version → ${TO_VERSION}.0.0\n"
+    $OCA_DONE && ui_ok "OCA"
+    $ODOO_DONE && ui_ok "Odoo upgrade_code"
+    $CUSTOM_DONE && ui_ok "Custom scripts"
+    $VERSION_DONE && ui_ok "Manifest versions → ${TO_VERSION}.0.0"
 fi
-
-echo ""
-printf "${CWARN}  ⚠ Manual migrations needed:${RST}\n"
-echo "    - attrs= → invisible=, readonly=, required="
-echo "    - states= → invisible expression"
-echo "    - Kanban views (kanban-box → card)"
-echo ""
+echo
+ui_warn "Still manual:"
+ui_note "attrs= → invisible= / readonly= / required=   (17.0+)"
+ui_note "states= → invisible expression               (17.0+)"
+ui_note "kanban-box → card templates                   (18.0+)"
+echo
 
 # ============================================================================
 # 5. Pre-commit (optional)
 # ============================================================================
-if [ "$DRY_RUN" = false ]; then
-    RUN_PRECOMMIT=false
-
-    if [ "$FORCE" = true ]; then
-        RUN_PRECOMMIT=true
-    else
-        printf "  Run pre-commit on migrated files? [Y/n]: "
-        read -r PRECOMMIT_CHOICE
-        [[ -z "$PRECOMMIT_CHOICE" || "$PRECOMMIT_CHOICE" =~ ^[Yy] ]] && RUN_PRECOMMIT=true
-    fi
-
-    if [ "$RUN_PRECOMMIT" = true ]; then
-        printf "\n${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-        printf "${CSUCCESS}  ▶ Running pre-commit${RST}\n"
-        printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-
-        FILES_TO_PROCESS=$(docker exec "$CONTAINER" find $SELECTED_PATHS -type f \( -name "*.py" -o -name "*.xml" \) 2>/dev/null | tr '\n' ' ')
-        run_precommit "$CONTAINER" "$FILES_TO_PROCESS"
-
-        printf "\n  ${CSUCCESS}✓${RST} Pre-commit completed\n\n"
-    fi
+if ! $DRY_RUN && { $FORCE || { [ -t 0 ] && confirm "Run pre-commit on the migrated files?"; }; }; then
+    ui_section "Running pre-commit"
+    FILES_TO_PROCESS=$(in_odoo find "${SELECTED_PATHS[@]}" -type f \( -name "*.py" -o -name "*.xml" \) 2>/dev/null | tr '\n' ' ')
+    if run_precommit "$ODOO_CONTAINER" "$FILES_TO_PROCESS"; then echo; ui_done "Pre-commit passed"
+    else echo; ui_warn "Pre-commit reported issues — fixable ones were fixed in place"; fi
 fi

@@ -5,89 +5,45 @@
 # Usage: translation [-h|--help] [-d DATABASE] [-l LANGUAGE] [MODULE[,MODULE2,...]]
 #        translation --all
 #        translation          # interactive module picker
-# Aliases: i18n-export, i18n
 #
 # Replaces i18n/fr.po (or other language file) in each selected module with a
 # freshly extracted export from the database / source.
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
+PANE=always   # long: runs in a side pane of the utils terminal
 
 show_help() {
-    echo ""
-    echo "translation - Fresh-export translation files (replaces module i18n/*.po)"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       translation [MODULE[,MODULE2,...]]"
-    echo "       translation aec_*"
-    echo "       translation --all"
-    echo "       translation -l fr_FR sale,purchase"
-    echo "       translation --pot my_module"
-    echo "       translation          # interactive picker"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       MODULE    Module name(s), comma-separated"
-    echo "                 Supports regex patterns: sale_*, aec_*, 3ds_*"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -d, --database DB   Database (default: SELECTED_DB)"
-    echo "       -l, --language LANG Language code (default: fr_FR → fr.po)"
-    echo "       --all               Export every module under /mnt/extra-addons"
-    echo "       (no MODULE)         Interactive list (extra-addons only, not odoo/enterprise)"
-    echo "       -a, --all-langs     Export every active language from the DB"
-    echo "       --pot               Also export i18n/<module>.pot template"
-    echo "       --no-restart        Ignored (kept for compatibility; Odoo is never stopped)"
-    echo "       -h, --help          Show this help"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Extracts translations with Odoo and overwrites each module's"
-    echo "       i18n/<lang>.po in place (default: fr.po). On Odoo 19+ uses"
-    echo "       \`odoo i18n export -l <lang>\`; older versions use --i18n-export"
-    echo "       with --stop-after-init. The running Odoo server is left alone."
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       translation aec_sale_order"
-    echo "       translation aec_*"
-    echo "       translation --all"
-    echo "       translation --pot aec_base,aec_partner"
-    echo "       translation"
-    echo ""
-    printf "   ${CPRIMARY}CONFIGURATION${RST} (from .env)\n"
-    echo "       SELECTED_DB    Default database"
-    echo ""
+    h_name "translation" "Re-export the i18n/*.po files of your modules"
+    h_sec "USAGE"
+    h_use "translation [options] MODULE[,MODULE2,...]"
+    h_use "translation --all"
+    h_use "translation                        interactive picker"
+    h_sec "ARGUMENTS"
+    h_opt "MODULE" "Comma-separated names; patterns allowed: my_*, sale_[a-m]*"
+    h_text "Only modules under your addons (ADDONS_PATH) are exported, never odoo/enterprise."
+    h_sec "OPTIONS"
+    h_opt "-d, --database DB" "Database (default: SELECTED_DB, asked when empty)"
+    h_opt "-l, --language LANG" "Language code (default: fr_FR → i18n/fr.po)"
+    h_opt "-L, --all-langs" "Every active language of the database"
+    h_opt "--pot" "Also export the i18n/<module>.pot template"
+    h_opt "-a, --all" "Every module of your addons"
+    h_sec "DESCRIPTION"
+    h_text "Overwrites i18n/<lang>.po in place with a fresh export. Odoo 19+ uses"
+    h_text "'odoo i18n export'; older versions use --i18n-export. The running"
+    h_text "Odoo is not stopped. Modules must be installed (state 'installed')."
+    h_sec "EXAMPLES"
+    h_ex "translation my_module" ""
+    h_ex "translation my_*" ""
+    h_ex "translation --pot -l en_US my_module" ""
+    h_ex "translation --all" "Everything"
+    h_global
+    h_end
 }
 
-lang_to_po_filename() {
-    local lang="$1"
-    if [[ "$lang" == *_* ]]; then
-        echo "${lang%%_*}.po"
-    else
-        echo "${lang}.po"
-    fi
-}
-
-# Odoo 19 CLI accepts short codes (fr) or locales (fr_FR). Prefer short for -l.
-lang_to_cli_code() {
-    local lang="$1"
-    if [ "$lang" = "pot" ]; then
-        echo "pot"
-        return
-    fi
-    if [[ "$lang" == *_* ]]; then
-        echo "${lang%%_*}"
-    else
-        echo "$lang"
-    fi
-}
-
-odoo_major_version() {
-    # Prefer .env ODOO_VERSION (e.g. 19.0), fallback to `odoo --version`.
-    local ver="${ODOO_VERSION:-}"
-    if [ -z "$ver" ]; then
-        ver=$(docker exec "$ODOO_CONTAINER" odoo --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
-    fi
-    echo "${ver%%.*}"
-}
+# fr_FR → fr: the .po file name, and the code the Odoo 19 CLI prefers for -l.
+lang_short() { echo "${1%%_*}"; }
+lang_to_po_filename() { echo "$(lang_short "$1").po"; }
 
 supports_i18n_cli() {
     local major
@@ -121,7 +77,7 @@ export_module_lang_legacy() {
 
     module_path=$(find_module_path "$module" "$ADDON_PATHS")
     if [ -z "$module_path" ]; then
-        printf "${CERROR}❌ Module '%s' not found in addons paths${RST}\n" "$module" >&2
+        ui_err "Module '$module' not found in addons paths"
         return 1
     fi
 
@@ -136,7 +92,7 @@ export_module_lang_legacy() {
     output_path="${module_path}/i18n/${output_file}"
     docker exec "$ODOO_CONTAINER" mkdir -p "${module_path}/i18n" 2>/dev/null
 
-    printf "  ${CWARN}▶${RST} %s → i18n/%s (%s)\n" "$module" "$output_file" "$lang_arg"
+    ui_step "$module → i18n/$output_file ($lang_arg)"
 
     local log rc
     log=$(docker exec "$ODOO_CONTAINER" odoo -c /etc/odoo/odoo.conf \
@@ -151,13 +107,13 @@ export_module_lang_legacy() {
     rc=$?
 
     if [ "$rc" -ne 0 ]; then
-        printf "${CERROR}  ❌ Export failed for %s${RST}\n" "$module" >&2
+        ui_err "Export failed for $module"
         echo "$log" | sed 's/^/    /' >&2
         return 1
     fi
 
     if ! docker exec "$ODOO_CONTAINER" test -s "$output_path"; then
-        printf "${CERROR}  ❌ Output file missing or empty: %s${RST}\n" "$output_path" >&2
+        ui_err "Output file missing or empty: $output_path"
         return 1
     fi
     return 0
@@ -176,22 +132,20 @@ export_modules_cli() {
     for lang in "${_langs[@]}"; do
         lang=$(echo "$lang" | xargs)
         [ -z "$lang" ] && continue
-        cli_lang=$(lang_to_cli_code "$lang")
-        lang_args+=("$cli_lang")
+        lang_args+=("$(lang_short "$lang")")
     done
 
     if [ "${#modules[@]}" -eq 0 ] || [ "${#lang_args[@]}" -eq 0 ]; then
-        echo "❌ Internal error: no modules or languages for i18n export" >&2
+        ui_err "Internal error: no modules or languages for i18n export"
         return 1
     fi
 
-    # Ensure i18n dirs exist. Do NOT delete existing po before a successful
-    # export — Odoo overwrites in place; pre-delete left empty modules on failure.
+    # i18n/ must exist; existing .po files are overwritten in place by Odoo.
     local module module_path targets=""
     for module in "${modules[@]}"; do
         module_path=$(find_module_path "$module" "$ADDON_PATHS")
         if [ -z "$module_path" ]; then
-            printf "${CERROR}❌ Module '%s' not found in addons paths${RST}\n" "$module" >&2
+            ui_err "Module '$module' not found in addons paths"
             return 1
         fi
         docker exec "$ODOO_CONTAINER" mkdir -p "${module_path}/i18n" 2>/dev/null
@@ -205,15 +159,12 @@ export_modules_cli() {
                 targets="${targets:+$targets,}$(lang_to_po_filename "$lang")"
             fi
         done
-        printf "  ${CWARN}▶${RST} %s → i18n/%s\n" "$module" "$targets"
+        ui_step "$module → i18n/$targets"
     done
 
     local log rc
-    # IMPORTANT:
-    # - always pass -l explicitly (Odoo 19 defaults to 'pot' when -l is omitted)
-    # - global-looking opts (-c/-d/-l) belong to the `i18n export` subcommand
-    # - MODULE args must come before -l (nargs='+' would eat modules)
-    # - runs alongside the server; no need to stop Odoo
+    # -l is always given (Odoo 19 defaults to 'pot' without it) and comes after
+    # the modules (nargs='+' would swallow them). Runs alongside the server.
     log=$(docker exec "$ODOO_CONTAINER" odoo \
         i18n export \
         -c /etc/odoo/odoo.conf \
@@ -224,12 +175,12 @@ export_modules_cli() {
     rc=$?
 
     if [ "$rc" -ne 0 ]; then
-        printf "${CERROR}❌ odoo i18n export failed${RST}\n" >&2
+        ui_err "odoo i18n export failed"
         echo "$log" | sed 's/^/    /' >&2
         return 1
     fi
 
-    # Verify outputs (warn on empty — some metadata-only modules export empty po).
+    # Every expected file must exist (an empty .po is fine: metadata-only modules).
     local missing=0
     for module in "${modules[@]}"; do
         module_path=$(find_module_path "$module" "$ADDON_PATHS")
@@ -242,7 +193,7 @@ export_modules_cli() {
                 output_path="${module_path}/i18n/$(lang_to_po_filename "$lang")"
             fi
             if ! docker exec "$ODOO_CONTAINER" test -f "$output_path"; then
-                printf "${CERROR}  ❌ Missing: %s${RST}\n" "$output_path" >&2
+                ui_err "Missing: $output_path"
                 missing=$((missing + 1))
             fi
         done
@@ -276,33 +227,27 @@ prompt_select_modules() {
     local modules_csv
     modules_csv=$(extra_addon_modules_csv)
     if [ -z "$modules_csv" ]; then
-        echo "❌ No modules found under /mnt/extra-addons"
-        echo "   (Odoo core and enterprise are excluded)"
-        exit 1
+        die "No module found in your addons (/mnt/extra-addons)"
     fi
 
     local -a modules=()
     IFS=',' read -ra modules <<< "$modules_csv"
 
-    echo ""
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n"
-    printf "${CPRIMARY}  Select modules to export${RST}  (extra-addons only)\n"
-    printf "${CPRIMARY}───────────────────────────────────────────────────────────────${RST}\n\n"
-    printf "    ${CSUCCESS}%2s.${RST} %s\n" "0" "all"
+    ui_section "Select modules to export (your addons only)"
+    printf "  ${CPRIMARY}%2s.${RST} %s\n" "0" "all"
 
-    local i=1
-    declare -A MODULE_MAP
-    local m
+    local i=1 m
+    local -A MODULE_MAP
     for m in "${modules[@]}"; do
         m=$(echo "$m" | xargs)
         [ -z "$m" ] && continue
-        printf "    ${CSUCCESS}%2d.${RST} %s\n" "$i" "$m"
+        printf "  ${CPRIMARY}%2d.${RST} %s\n" "$i" "$m"
         MODULE_MAP[$i]="$m"
         i=$((i + 1))
     done
 
     echo ""
-    printf "  Select (0=all / 1,2,3 / names / patterns) [all]: "
+    printf "${CWARN}?${RST} Select ${CMUTED}(0=all / 1,2,3 / names / patterns) [all]${RST} "
     local choice
     read -r choice
 
@@ -326,12 +271,11 @@ prompt_select_modules() {
             if [ -n "${MODULE_MAP[$num]:-}" ]; then
                 selected="${selected:+$selected,}${MODULE_MAP[$num]}"
             else
-                printf "${CWARN}⚠ Unknown selection: %s${RST}\n" "$num" >&2
+                ui_warn "Unknown selection: $num" >&2
             fi
         done
         if [ -z "$selected" ]; then
-            echo "❌ No valid module selected"
-            exit 1
+            die "No valid module selected"
         fi
         MODULES="$selected"
         return 0
@@ -349,92 +293,42 @@ LANGUAGE="fr_FR"
 ALL_LANGS=false
 EXPORT_ALL=false
 EXPORT_POT=false
-NO_RESTART=false
 MODULES=""
 
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -d|--database)
-            DBNAME="$2"
-            shift 2
-            ;;
-        -l|--language)
-            LANGUAGE="$2"
-            shift 2
-            ;;
-        --all)
-            EXPORT_ALL=true
-            shift
-            ;;
-        -a|--all-langs)
-            ALL_LANGS=true
-            shift
-            ;;
-        --pot)
-            EXPORT_POT=true
-            shift
-            ;;
-        --no-restart)
-            NO_RESTART=true
-            shift
-            ;;
-        -*)
-            printf "${CERROR}❌ Unknown option: %s${RST}\n" "$1"
-            show_help
-            exit 1
-            ;;
-        *)
-            if [ -z "$MODULES" ]; then
-                MODULES="$1"
-            else
-                MODULES="${MODULES},$1"
-            fi
-            shift
-            ;;
+        -h|--help) show_help; exit 0 ;;
+        -d|--database) DBNAME="${2:-}"; [ -z "$DBNAME" ] && die "-d needs a database name"; shift 2 ;;
+        -l|--language) LANGUAGE="${2:-}"; [ -z "$LANGUAGE" ] && die "-l needs a language code"; shift 2 ;;
+        -a|--all) EXPORT_ALL=true; shift ;;
+        -L|--all-langs) ALL_LANGS=true; shift ;;
+        --pot) EXPORT_POT=true; shift ;;
+        -*) die "Unknown option: $1" "See: translation --help" ;;
+        *) MODULES="${MODULES:+$MODULES,}$1"; shift ;;
     esac
 done
 
-[ -z "$DBNAME" ] && DBNAME="${SELECTED_DB}"
-if [ -z "$DBNAME" ]; then
-    echo "❌ No database specified and no SELECTED_DB in .env"
-    echo "   Usage: translation -d <database> [MODULE]"
-    exit 1
-fi
-
-if ! docker ps --format '{{.Names}}' | grep -q "^${ODOO_CONTAINER}$"; then
-    echo "❌ Odoo container is not running"
-    exit 1
-fi
-
-if ! db_exists "$DBNAME"; then
-    echo "❌ Database '$DBNAME' does not exist"
-    exit 1
-fi
+require_odoo_container
+require_db_container
+open_pane
+[ -z "$DBNAME" ] && DBNAME="${SELECTED_DB:-}"
+[ -z "$DBNAME" ] && { pick_db "Which database?" || exit 1; DBNAME="$PICKED"; echo; }
+db_exists "$DBNAME" || die "Database '$DBNAME' does not exist" "db list to see the databases"
 
 if [ -z "$MODULES" ] && [ "$EXPORT_ALL" != true ]; then
-    if [ -t 0 ]; then
-        prompt_select_modules
-    else
-        echo "❌ No module specified (non-interactive shell)"
-        echo "   Usage: translation MODULE[,MODULE2,...]   or   translation --all"
-        exit 1
-    fi
+    [ -t 0 ] || die "No module given and no terminal for the picker" "Usage: translation MODULE[,MODULE2,...]  or  translation --all"
+    prompt_select_modules
 fi
 
 if [ "$EXPORT_ALL" = true ]; then
     MODULES=$(extra_addon_modules_csv)
-    if [ -z "$MODULES" ]; then
-        echo "❌ No modules found under /mnt/extra-addons"
-        echo "   (Odoo core and enterprise are excluded)"
-        exit 1
-    fi
+    [ -z "$MODULES" ] && die "No module found in your addons (/mnt/extra-addons)"
 fi
 
 if [ "$EXPORT_ALL" != true ]; then
+    refresh_modules_cache "$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)"
     MODULES=$(expand_modules "$MODULES")
     # Keep only modules that live under /mnt/extra-addons
     local_extra=$(list_extra_addon_modules)
@@ -446,21 +340,17 @@ if [ "$EXPORT_ALL" != true ]; then
         if echo "$local_extra" | grep -qxF "$m"; then
             filtered="${filtered:+$filtered,}$m"
         else
-            printf "${CWARN}⚠ Skipping '%s' (not under /mnt/extra-addons)${RST}\n" "$m" >&2
+            ui_warn "Skipping '$m' (not in your addons)" >&2
         fi
     done
     MODULES="$filtered"
 fi
-[ -z "$MODULES" ] && { echo "❌ No matching modules found under /mnt/extra-addons"; exit 1; }
+[ -z "$MODULES" ] && die "No matching module in your addons (/mnt/extra-addons)"
 
 ADDON_PATHS=$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)
-[ -z "$ADDON_PATHS" ] && { echo "❌ Could not resolve addons paths"; exit 1; }
+[ -z "$ADDON_PATHS" ] && die "Could not resolve addons paths"
 
-echo ""
-printf "${CPRIMARY}═══════════════════════════════════════════════════════════════${RST}\n"
-printf "${CPRIMARY}  TRANSLATION EXPORT${RST}  (${DBNAME}) — overwrite i18n/*.po\n"
-printf "${CPRIMARY}═══════════════════════════════════════════════════════════════${RST}\n"
-echo ""
+ui_title "Translation export" "$DBNAME — overwrite i18n/*.po"
 
 FAILED=0
 IFS=',' read -ra MODULE_LIST <<< "$MODULES"
@@ -485,10 +375,25 @@ for module in "${MODULES_CLEAN[@]}"; do
     fi
 done
 if [ -n "$NOT_INSTALLED" ]; then
-    printf "${CERROR}❌ Refusing to export: module(s) not fully installed:${RST}\n"
+    ui_err "Refusing to export: module(s) not fully installed"
     printf "%b" "$NOT_INSTALLED"
-    echo "   Run: u <module>   then retry translation"
+    ui_note "u <module> then retry"
     exit 1
+fi
+
+# The language must be active in the database, otherwise Odoo exports nothing.
+if [ "$ALL_LANGS" != true ]; then
+    lang_active=$(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DBNAME" -tAc \
+        "SELECT 1 FROM res_lang WHERE active AND code='${LANGUAGE}' LIMIT 1;" 2>/dev/null | xargs)
+    if [ "$lang_active" != "1" ]; then
+        ui_warn "Language '$LANGUAGE' is not active in '$DBNAME'"
+        confirm "Load it now? (odoo --load-language, Odoo is not stopped)" || die "Export cancelled" "Activate the language in Odoo (Settings › Languages) or pass -l <code>"
+        ui_step "Loading language $LANGUAGE..."
+        docker exec "$ODOO_CONTAINER" odoo -c /etc/odoo/odoo.conf -d "$DBNAME" --no-http --stop-after-init \
+            --load-language="$LANGUAGE" --log-level=error >/dev/null 2>&1 \
+            || die "Could not load language '$LANGUAGE'"
+        ui_ok "Language $LANGUAGE loaded"
+    fi
 fi
 
 if supports_i18n_cli; then
@@ -497,7 +402,7 @@ if supports_i18n_cli; then
         LANGS_CSV=$(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DBNAME" -tAc \
             "SELECT code FROM res_lang WHERE active ORDER BY code;" 2>/dev/null | sed '/^$/d' | paste -sd, -)
         if [ -z "$LANGS_CSV" ]; then
-            printf "${CERROR}❌ No active languages found in database${RST}\n"
+            ui_err "No active language found in the database"
             FAILED=1
         fi
     else
@@ -520,7 +425,7 @@ else
             LANGS=$(docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$DBNAME" -tAc \
                 "SELECT code FROM res_lang WHERE active ORDER BY code;" 2>/dev/null | sed '/^$/d')
             if [ -z "$LANGS" ]; then
-                printf "${CERROR}❌ No active languages found in database${RST}\n"
+                ui_err "No active language found in the database"
                 FAILED=$((FAILED + 1))
                 continue
             fi
@@ -535,10 +440,5 @@ else
 fi
 
 echo ""
-if [ "$FAILED" -gt 0 ]; then
-    printf "${CERROR}❌ Translation export failed${RST}\n"
-    exit 1
-fi
-
-printf "${CSUCCESS}✓ Translation export completed (%d module(s)) — po files replaced${RST}\n" "${#MODULES_CLEAN[@]}"
-echo ""
+[ "$FAILED" -gt 0 ] && die "Translation export failed"
+ui_done "Translation export completed — ${#MODULES_CLEAN[@]} module(s), po files replaced"

@@ -8,19 +8,7 @@
 ODOO_CMD="$1"
 ADDON_PATHS="$2"
 
-THEME_CONF="/etc/config/odoo/theme.conf"
-THEMES_DIR="/etc/themes"
-source "$THEME_CONF" 2>/dev/null
-set -a
-if [ "${USE_DEFAULT_THEME}" = "true" ] && [ -n "${DEFAULT_THEME}" ] && [ -f "${THEMES_DIR}/${DEFAULT_THEME}.conf" ]; then
-    source "${THEMES_DIR}/${DEFAULT_THEME}.conf"
-else
-    source "${THEMES_DIR}/default.conf" 2>/dev/null
-fi
-source "$THEME_CONF" 2>/dev/null
-set +a
-
-source /usr/local/bin/hex_to_ansi.sh 2>/dev/null
+source /opt/env/scripts/lib/theme.sh
 
 SEP="${CMUTED}────────────────────────────────────────────────────────${RST}"
 
@@ -86,7 +74,7 @@ if [ -n "$MODS" ]; then
     IFS=',' read -ra ML <<< "$MODS"
     for mod in "${ML[@]}"; do
         mod=$(echo "$mod" | xargs)
-        if [ -n "$KNOWN" ] && ! echo "$KNOWN" | grep -qE "(^|\|)${mod}(\||$)"; then
+        if [ "$mod" != "all" ] && [ "$mod" != "base" ] && [ -n "$KNOWN" ] && ! echo "$KNOWN" | grep -qE "(^|\|)${mod}(\||$)"; then
             printf '  - %s%s ⚠%s\n' "$CWARN" "$mod" "$RST"
         else
             printf '  - %s%s%s\n' "$CSUCCESS" "$mod" "$RST"

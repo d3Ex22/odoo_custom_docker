@@ -1,53 +1,42 @@
 #!/bin/bash
 # ============================================================================
-# reboot - Restart Odoo service
+# reboot - Restart the Odoo process (~2s, no module update)
 # ============================================================================
-# Usage: reboot [-h|--help]
+# Usage: reboot [-h|--help] [-w|--wait]
 # Alias: r
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 show_help() {
-    echo ""
-    echo "reboot - Restart Odoo service"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       reboot"
-    echo "       r"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Stops the current Odoo process and restarts it with the"
-    echo "       same configuration. Uses tmux to manage the process."
-    echo ""
-    printf "   ${CPRIMARY}CONFIGURATION${RST} (from .env)\n"
-    echo "       SELECTED_DB     Database to use"
-    echo "       ODOO_ARGS       Additional Odoo arguments"
-    echo ""
-    printf "   ${CPRIMARY}NOTE${RST}\n"
-    echo "       ODOO_UPDATE is intentionally ignored by reboot."
-    echo "       Use 'update' (u) to restart with -u <modules>."
-    echo ""
+    h_name "reboot (r)" "Restart the Odoo process"
+    h_sec "USAGE"
+    h_use "r [-w]"
+    h_sec "OPTIONS"
+    h_opt "-w, --wait" "Wait until Odoo is ready and report errors"
+    h_sec "DESCRIPTION"
+    h_text "Kills the Odoo process in its tmux pane and starts it again with"
+    h_text "SELECTED_DB and ODOO_ARGS. ODOO_UPDATE is ignored on purpose:"
+    h_text "use 'u' to restart with -u <modules>."
+    h_global
+    h_end
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
-    exit 0
-fi
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
+WAIT=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) show_help; exit 0 ;;
+        -w|--wait) WAIT=true; shift ;;
+        *) die "Unknown option: $1" "See: r --help" ;;
+    esac
+done
 
-echo "Restarting Odoo..."
+require_odoo_container
+ui_step "Restarting Odoo..."
+launch_odoo || die "Failed to restart Odoo"
+ui_ok "Odoo restarted"
 
-ADDON_PATHS=$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)
-ODOO_CMD=$(build_odoo_cmd)
-
-stop_odoo || exit 1
-sleep 0.3
-
-docker exec -i "$ODOO_CONTAINER" tee /tmp/.odoo_runner.sh > /dev/null << RUNNER_EOF
-#!/bin/bash
-/usr/local/bin/odoo_header.sh "$ODOO_CMD" "$ADDON_PATHS"
-exec $ODOO_CMD
-RUNNER_EOF
-run_odoo_script
-
-echo "✓ Odoo restarted"
+$WAIT && exec bash "${_PROJECT_ROOT}/.data/scripts/internal/logs.sh" --wait
+exit 0

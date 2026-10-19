@@ -2,69 +2,103 @@
 # ============================================================================
 # update - Update Odoo modules and restart
 # ============================================================================
-# Usage: update [-h|--help] [MODULE[,MODULE2,...]]
+# Usage: update [-h|--help] [-k|--keep] [-w|--wait] [-d DB] [MODULE[,MODULE2,...]]
 # Alias: u
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 show_help() {
-    echo ""
-    echo "update - Update Odoo modules and restart"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       update MODULE[,MODULE2,...]"
-    echo "       update"
-    echo "       u MODULE"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       MODULE    Module name(s) to update, comma-separated"
-    echo "                 Supports regex patterns: sale_*, sale_.*, sale_[a-m]*"
-    echo "                 If omitted, uses ODOO_UPDATE from .env"
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       update sale"
-    echo "       update sale,purchase,stock"
-    echo "       update sale_*"
-    echo "       u base"
-    echo ""
-    printf "   ${CPRIMARY}CONFIGURATION${RST} (from .env)\n"
-    echo "       ODOO_UPDATE    Default module(s) to update"
-    echo "       SELECTED_DB    Database to use"
-    echo "       ODOO_ARGS      Additional Odoo arguments"
-    echo ""
+    h_name "update (u)" "Restart Odoo with -u <modules>"
+    h_sec "USAGE"
+    h_use "u [-k] [-w] [-d DB] MODULE[,MODULE2,...]"
+    h_use "u                                  reuse ODOO_UPDATE from .env"
+    h_sec "OPTIONS"
+    h_opt "-k, --keep" "Save the list as ODOO_UPDATE (next bare 'u' reuses it)"
+    h_opt "-w, --wait" "Wait until Odoo is ready and report errors"
+    h_opt "-d, --database DB" "Database(s) to update: name, comma list, or 'all' (every Odoo DB)"
+    h_sec "ARGUMENTS"
+    h_opt "MODULE" "Comma-separated names; patterns allowed: sale_*, my_[a-m]*"
+    h_opt "all" "Every installed module"
+    h_sec "DATABASE"
+    h_text "-u needs a database: SELECTED_DB by default. Without it (multi-db"
+    h_text "mode) and without -d, the Odoo databases are listed to pick one, or"
+    h_text "all. Odoo then serves only the updated database(s) until the next"
+    h_text "start / reboot, which goes back to SELECTED_DB (or multi-db)."
+    h_sec "EXAMPLES"
+    h_ex "u sale" ""
+    h_ex "u sale,purchase,stock" ""
+    h_ex "u my_*" "Every module matching the pattern"
+    h_ex "u -k my_module" "then just 'u' for the next updates"
+    h_ex "u -w my_module" "Update, wait, show errors if any"
+    h_ex "u -d all my_module" "Update it in every Odoo database"
+    h_sec "CONFIGURATION (.env)"
+    h_opt "ODOO_UPDATE" "Default module list (u -k <modules>, or .env)"
+    h_opt "SELECTED_DB" "Database to use (empty = multi-db mode, see DATABASE)"
+    h_opt "ODOO_ARGS" "Extra Odoo arguments"
+    h_global
+    h_end
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_help
-    exit 0
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
+
+KEEP=false
+WAIT=false
+MODULES=""
+DB=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) show_help; exit 0 ;;
+        -k|--keep) KEEP=true; shift ;;
+        -w|--wait) WAIT=true; shift ;;
+        -d|--database) [ -n "${2:-}" ] || die "-d needs a database name" "See: u --help"; DB="$2"; shift 2 ;;
+        -*) die "Unknown option: $1" "See: u --help" ;;
+        *) MODULES="${MODULES:+$MODULES,}$1"; shift ;;
+    esac
+done
+
+if [ -z "$MODULES" ]; then
+    $KEEP && die "-k needs a module list" "Usage: u -k MODULE[,MODULE2,...]"
+    MODULES="${ODOO_UPDATE:-}"
+    [ -z "$MODULES" ] && die "No module given and ODOO_UPDATE is empty" \
+        "Usage: u MODULE[,MODULE2,...]" "Set a default with: u -k <modules>"
+    ui_note "Using ODOO_UPDATE=${MODULES}"
 fi
 
-if [ -n "$1" ]; then
-    MODULES="$1"
-elif [ -n "$ODOO_UPDATE" ]; then
-    MODULES="$ODOO_UPDATE"
-else
-    echo "❌ No module specified"
-    echo "   Usage: update MODULE[,MODULE2,...]"
-    echo "   Or set ODOO_UPDATE via: conf ODOO_UPDATE <modules>"
-    exit 1
+require_odoo_container
+
+# -u only applies to the databases given with -d: resolve one now.
+if [ "$DB" = "all" ]; then
+    require_db_container
+    DB=$(odoo_db_list_names | paste -sd, -)
+    [ -z "$DB" ] && die "No Odoo database found" "db list to see the databases"
+elif [ -z "$DB" ] && [ -z "${SELECTED_DB:-}" ]; then
+    require_db_container
+    pick_db "Update which database?" all || exit 1
+    DB="$PICKED"
+fi
+if [ -n "$DB" ] && [ "$DB" != "${SELECTED_DB:-}" ]; then
+    require_db_container
+    for d in ${DB//,/ }; do db_exists "$d" || die "Database '$d' does not exist" "db list to see the databases"; done
+    ui_note "Odoo will serve only ${DB//,/, } until the next start / reboot"
 fi
 
-MODULES=$(expand_modules "$MODULES")
-[ -z "$MODULES" ] && { echo "❌ No matching modules found"; exit 1; }
+if $KEEP; then
+    set_env_value "ODOO_UPDATE" "$MODULES"
+    ui_ok "ODOO_UPDATE=${MODULES}"
+fi
 
-ADDON_PATHS=$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)
-ODOO_CMD=$(build_odoo_cmd "$MODULES")
+refresh_modules_cache "$(docker exec "$ODOO_CONTAINER" /usr/local/bin/generate_addons_path.sh 2>/dev/null)"
 
-stop_odoo || exit 1
-sleep 0.3
+EXPANDED=$(expand_modules "$MODULES")
+[ -z "$EXPANDED" ] && die "No matching module" "Patterns are matched against the module cache (addons + odoo + enterprise)"
+UNKNOWN=$(unknown_modules "$EXPANDED")
+[ -n "$UNKNOWN" ] && ui_warn "Unknown module(s): $(echo "$UNKNOWN" | paste -sd, -)"
 
-docker exec -i "$ODOO_CONTAINER" tee /tmp/.odoo_runner.sh > /dev/null << RUNNER_EOF
-#!/bin/bash
-/usr/local/bin/odoo_header.sh "$ODOO_CMD" "$ADDON_PATHS"
-exec $ODOO_CMD
-RUNNER_EOF
-run_odoo_script
+ui_step "Restarting Odoo with -u ${EXPANDED}${DB:+ on ${DB//,/, }}..."
+SELECTED_DB="${DB:-${SELECTED_DB:-}}" launch_odoo "$EXPANDED" || die "Failed to restart Odoo"
+ui_ok "Odoo restarted"
 
-printf "✓ Odoo restarted.\n"
+$WAIT && exec bash "${_PROJECT_ROOT}/.data/scripts/internal/logs.sh" --wait
+exit 0

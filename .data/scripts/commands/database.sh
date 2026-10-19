@@ -1,292 +1,304 @@
 #!/bin/bash
 set -uo pipefail
 # ============================================================================
-# database - Database management menu
+# db - Database management (list, select, drop, clone, backup, restore, sanitize)
 # ============================================================================
 # Usage: db [-h|--help] <command> [args]
-# Alias: db
+# Alias: database
 # ============================================================================
 
+CMD_NAME="db"
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 ZIP_DIR="${_PROJECT_ROOT}/db_files"
-TMP_DIR="${_PROJECT_ROOT}/db_files/.tmp"
+TMP_DIR="${ZIP_DIR}/.tmp"
 FILESTORE_BASE="${_PROJECT_ROOT}/.data/volumes/odoo-container/odoo/filestore"
+BACKUP_GLOB=(-iname "*.sql" -o -iname "*.dump" -o -iname "*.zip" -o -iname "*.7z" -o -iname "*.tar.gz" -o -iname "*.tgz")
 
 TMP_ANON_DB=""
-
 cleanup() {
     rm -rf "$TMP_DIR" 2>/dev/null
-    [ -n "$TMP_ANON_DB" ] && docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$TMP_ANON_DB\";" >/dev/null 2>&1
+    [ -n "$TMP_ANON_DB" ] && drop_db_force "$TMP_ANON_DB" 2>/dev/null
 }
 trap cleanup EXIT
 
+# ----------------------------------------------------------------------------
+# Help
+# ----------------------------------------------------------------------------
+show_help() {
+    h_name "db" "Database management"
+    h_sec "USAGE"
+    h_use "db                         overview (selected DB + list)"
+    h_use "db <command> [options]"
+    h_sec "COMMANDS"
+    h_opt "list" "List databases (size, Odoo version)"
+    h_opt "select [name]" "Set the active database and reboot Odoo"
+    h_opt "drop <name> | drop -f" "Drop a database (-f: the active one, Odoo recreates it)"
+    h_opt "clone <src> <dst>" "Copy a database (and its filestore)"
+    h_opt "backup [-fs] [--keep N] [name]" "Backup to ./db_files/<name>_<date>.zip (--keep: rotation)"
+    h_opt "restore [opts] <name>" "Restore a backup from ./db_files/ (sanitized)"
+    h_opt "sanitize [-a] [name]" "Neutralize / anonymize a DB or a backup file"
+    h_sec "NOTES"
+    h_text "Use 'db <command> --help' for details."
+    h_text "Long operations (restore, backup, sanitize) run in a side pane of the"
+    h_text "utils terminal (closes by itself on success, stays open on error)."
+    h_global
+    h_end
+}
+
+help_list() {
+    h_name "db list" "List databases"
+    h_sec "USAGE"
+    h_use "db list"
+    h_sec "DESCRIPTION"
+    h_text "Name, size, Odoo version (base module), creation date (when the"
+    h_text "database was created or restored here) and last Odoo login of every"
+    h_text "database. The selected database (SELECTED_DB) is marked with ●."
+    h_end
+}
+
+help_select() {
+    h_name "db select" "Set the active database"
+    h_sec "USAGE"
+    h_use "db select [name]"
+    h_sec "ARGUMENTS"
+    h_opt "name" "Database to select (interactive picker when omitted)"
+    h_sec "DESCRIPTION"
+    h_text "Writes SELECTED_DB in .env and reboots Odoo. If the database does"
+    h_text "not exist yet, asks for confirmation: Odoo creates it on start."
+    h_sec "EXAMPLES"
+    h_ex "db select" "Pick from the list"
+    h_ex "db select mydb" "Select an existing DB"
+    h_ex "db select -y newdb" "Select a DB that Odoo will create"
+    h_global
+    h_end
+}
+
+help_drop() {
+    h_name "db drop" "Drop a database"
+    h_sec "USAGE"
+    h_use "db drop <name>"
+    h_use "db drop -f"
+    h_sec "OPTIONS"
+    h_opt "-f, --force" "Drop the selected DB (SELECTED_DB) and restart Odoo on a fresh one"
+    h_sec "DESCRIPTION"
+    h_text "Active sessions are terminated first. The filestore is removed too."
+    h_sec "EXAMPLES"
+    h_ex "db drop mydb" "Drop with confirmation"
+    h_ex "db drop -y mydb" "Drop without confirmation"
+    h_ex "db drop -f -y" "Reset the selected DB, no prompt"
+    h_global
+    h_end
+}
+
+help_clone() {
+    h_name "db clone" "Copy a database"
+    h_sec "USAGE"
+    h_use "db clone <source> <destination>"
+    h_sec "OPTIONS"
+    h_opt "-f, --force" "Replace the destination if it already exists"
+    h_sec "DESCRIPTION"
+    h_text "Uses CREATE DATABASE ... TEMPLATE (sessions on the source are closed"
+    h_text "for a second, Odoo reconnects by itself) and copies the filestore."
+    h_sec "EXAMPLES"
+    h_ex "db clone main main_backup" ""
+    h_ex "db clone -f prod test" "Overwrite 'test'"
+    h_global
+    h_end
+}
+
+help_backup() {
+    h_name "db backup" "Backup a database to ./db_files"
+    h_sec "USAGE"
+    h_use "db backup [-fs] [--keep N] [name]"
+    h_sec "OPTIONS"
+    h_opt "-fs, --filestore" "Include the filestore (attachments) in the zip"
+    h_opt "--keep N" "Rotation: keep only the N most recent backups of this database in ./db_files"
+    h_sec "ARGUMENTS"
+    h_opt "name" "Database (default: SELECTED_DB, asked when empty)"
+    h_sec "EXAMPLES"
+    h_ex "db backup" "Backup the selected DB"
+    h_ex "db backup -fs mydb" "With filestore"
+    h_ex "db backup --keep 5" "Keep the last 5 backups of the selected DB"
+    h_global
+    h_end
+}
+
+help_restore() {
+    h_name "db restore" "Restore a backup from ./db_files"
+    h_sec "USAGE"
+    h_use "db restore [-s] [-f] [-na] [--file FILE | --last] <name>"
+    h_sec "OPTIONS"
+    h_opt "-s, --switch" "Select the restored DB and reboot Odoo"
+    h_opt "-f, --force" "Replace <name> if it exists, without asking"
+    h_opt "-na, --no-sanitize" "Skip neutralize + anonymize"
+    h_opt "-F, --file FILE" "Backup to restore (otherwise picker; a single file is taken directly)"
+    h_opt "-l, --last" "Most recent backup of <name> in ./db_files (else the most recent of all)"
+    h_sec "ARGUMENTS"
+    h_opt "name" "Target database name"
+    h_sec "FORMATS"
+    h_text ".sql  .dump (pg_restore)  .zip  .7z  .tar.gz  .tgz"
+    h_text "Archives may contain a filestore/ folder (Odoo backup layout)."
+    h_sec "DESCRIPTION"
+    h_text "Creates <name> (replaces it only if it exists), imports the dump,"
+    h_text "restores the filestore, then neutralizes (crons, mail servers, ...)"
+    h_text "and anonymizes (emails → @test.test, admin/admin). Use -na to skip."
+    h_sec "EXAMPLES"
+    h_ex "db restore newdb" "Pick a backup, restore sanitized"
+    h_ex "db restore -s newdb" "... then select it and reboot"
+    h_ex "db restore -y -F prod.zip -f main" "Fully non-interactive"
+    h_ex "db restore --last -f main" "Latest main_*.zip back over main"
+    h_global
+    h_end
+}
+
+help_sanitize() {
+    h_name "db sanitize" "Neutralize and/or anonymize a database or a backup file"
+    h_sec "USAGE"
+    h_use "db sanitize [-a] [name]"
+    h_use "db sanitize [-a] --file [FILE]"
+    h_sec "OPTIONS"
+    h_opt "-a, --all" "Neutralize then anonymize (no question asked)"
+    h_opt "-F, --file [FILE]" "Work on a backup under ./db_files/ (picker when FILE omitted; a single file is taken directly)"
+    h_sec "ARGUMENTS"
+    h_opt "name" "Database (default: SELECTED_DB, asked when empty)"
+    h_sec "STEPS"
+    h_opt "neutralize" "Odoo CLI: crons, mail servers, payment providers, API keys..."
+    h_opt "anonymize" "SQL: partner/user emails → @test.test, admin login/password → admin"
+    h_sec "FILE MODE"
+    h_text "Imports into a temporary DB, applies the steps, exports again as"
+    h_text "neutral_<file>, anon_<file> or sanitized_<file> and removes the original."
+    h_sec "EXAMPLES"
+    h_ex "db sanitize" "Ask which steps, on SELECTED_DB"
+    h_ex "db sanitize -a mydb" "Both steps on mydb"
+    h_ex "db sanitize -a --file prod.zip" "Sanitized copy of a backup"
+    h_global
+    h_end
+}
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
 extract_archive() {
     local file="$1" dest="$2"
-    local ext_lower=$(echo "$file" | tr '[:upper:]' '[:lower:]')
-    case "$ext_lower" in
+    case "$(echo "$file" | tr '[:upper:]' '[:lower:]')" in
         *.zip) unzip -qo "$file" -d "$dest" ;;
         *.7z) 7z x -y "$file" -o"$dest" >/dev/null ;;
         *.tar.gz|*.tgz) tar -xzf "$file" -C "$dest" ;;
     esac
 }
+is_archive() { [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" =~ \.(zip|7z|tar\.gz|tgz)$ ]]; }
+find_sql_in_dir() { find "$1" -type f \( -iname "*.sql" -o -iname "*.dump" \) | head -n 1; }
+file_size() { du -h "$1" 2>/dev/null | cut -f1; }
 
-is_archive() {
-    local ext_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-    [[ "$ext_lower" =~ \.(zip|7z|tar\.gz|tgz)$ ]]
+list_backup_files() {   # list_backup_files [exclude_sanitized]
+    mkdir -p "$ZIP_DIR"
+    if [ "${1:-}" = "exclude_sanitized" ]; then
+        find "$ZIP_DIR" -maxdepth 1 -type f \( "${BACKUP_GLOB[@]}" \) \
+            ! -iname "anon_*" ! -iname "neutral_*" ! -iname "sanitized_*" 2>/dev/null | sort -r
+    else
+        find "$ZIP_DIR" -maxdepth 1 -type f \( "${BACKUP_GLOB[@]}" \) 2>/dev/null | sort -r
+    fi
 }
 
-find_sql_in_dir() {
-    find "$1" -type f \( -iname "*.sql" -o -iname "*.dump" \) | head -n 1
+# resolve_backup_file PATH_OR_NAME → echoes the absolute path (or fails)
+resolve_backup_file() {
+    local f="$1"
+    [ -f "$f" ] && { echo "$f"; return 0; }
+    [ -f "$ZIP_DIR/$f" ] && { echo "$ZIP_DIR/$f"; return 0; }
+    [ -f "$ZIP_DIR/$(basename "$f")" ] && { echo "$ZIP_DIR/$(basename "$f")"; return 0; }
+    return 1
+}
+
+# pick_backup_file [exclude_sanitized] → PICKED_FILE
+pick_backup_file() {
+    local -a files=() labels=()
+    local f
+    while IFS= read -r f; do [ -n "$f" ] && files+=("$f"); done < <(list_backup_files "${1:-}")
+    [ ${#files[@]} -eq 0 ] && die "No backup file in ./db_files/" "Supported: .sql .dump .zip .7z .tar.gz .tgz"
+    if [ ${#files[@]} -eq 1 ]; then   # nothing to choose: take it
+        PICKED_FILE="${files[0]}"
+        ui_note "Only backup in ./db_files/: $(basename "$PICKED_FILE") ($(file_size "$PICKED_FILE"))"
+        return 0
+    fi
+    for f in "${files[@]}"; do labels+=("$(printf '%s  %s(%s)%s' "$(basename "$f")" "$CMUTED" "$(file_size "$f")" "$RST")"); done
+    ui_step "Backups in ./db_files/"
+    pick_one "Select a backup" "${labels[@]}" || exit 1
+    local i
+    for i in "${!labels[@]}"; do [ "${labels[$i]}" = "$PICKED" ] && PICKED_FILE="${files[$i]}"; done
+    SECONDS=0   # the elapsed time shown at the end must not include the picker
 }
 
 import_sql() {
     local sql_file="$1" dbname="$2"
-    local ext_lower=$(echo "$sql_file" | tr '[:upper:]' '[:lower:]')
-    if [[ "$ext_lower" =~ \.dump$ ]]; then
-        docker exec -i "$DB_CONTAINER" pg_restore -U "$DB_USER" -d "$dbname" --no-owner < "$sql_file" 2>/dev/null
+    local log="${TMP_DIR}/.import.log"
+    mkdir -p "$TMP_DIR"
+    if [[ "$(echo "$sql_file" | tr '[:upper:]' '[:lower:]')" =~ \.dump$ ]]; then
+        docker exec -i "$DB_CONTAINER" pg_restore -U "$DB_USER" -d "$dbname" --no-owner < "$sql_file" 2>"$log"
     else
         # PG18 plain SQL dumps use inherited NOT NULL syntax unsupported on PG17
         local import_file="$sql_file"
         if grep -q 'CONSTRAINT ir_actions_name_not_null NOT NULL name,\|^[[:space:]]*NOT NULL name,$' "$sql_file" 2>/dev/null; then
             import_file="${TMP_DIR}/.import_pg17.sql"
-            mkdir -p "$TMP_DIR"
             sed -e '/CONSTRAINT ir_actions_name_not_null NOT NULL name,/d' \
                 -e '/^[[:space:]]*NOT NULL name,$/d' \
                 "$sql_file" > "$import_file"
         fi
-        docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$dbname" -v ON_ERROR_STOP=0 < "$import_file" >/dev/null 2>&1
+        docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$dbname" -q -v ON_ERROR_STOP=0 < "$import_file" >/dev/null 2>"$log"
+    fi
+    # Errors are not fatal (ON_ERROR_STOP=0) but must not be silent.
+    local errors
+    errors=$(grep -ci 'error' "$log" 2>/dev/null)
+    if [ "${errors:-0}" -gt 0 ]; then
+        ui_warn "${errors} error(s) during import (first 5):"
+        grep -i 'error' "$log" | head -5 | sed 's/^/    /'
     fi
 }
 
+# Filestore lives in the odoo container volume; written as root then chowned.
 restore_filestore_from_dir() {
     local src="$1" db="$2"
-    [ -z "$src" ] || [ ! -d "$src" ] && return 1
-    if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$ODOO_CONTAINER"; then
-        echo "❌ Odoo container ($ODOO_CONTAINER) must be running to restore filestore (writes as root, then chown odoo)."
+    [ -d "$src" ] || return 1
+    if ! container_running "$ODOO_CONTAINER"; then
+        ui_warn "Odoo container not running — filestore not restored"
         return 1
     fi
     docker exec -u 0 "$ODOO_CONTAINER" rm -rf "/var/lib/odoo/filestore/${db}"
     docker exec -u 0 "$ODOO_CONTAINER" mkdir -p "/var/lib/odoo/filestore/${db}"
-    if ! tar -C "$src" -cf - . 2>/dev/null | docker exec -i -u 0 "$ODOO_CONTAINER" tar -xf - -C "/var/lib/odoo/filestore/${db}"; then
-        echo "❌ Failed to stream filestore into Odoo container"
-        return 1
-    fi
+    tar -C "$src" -cf - . 2>/dev/null | docker exec -i -u 0 "$ODOO_CONTAINER" tar -xf - -C "/var/lib/odoo/filestore/${db}" || return 1
     docker exec -u 0 "$ODOO_CONTAINER" chown -R odoo:odoo "/var/lib/odoo/filestore/${db}" 2>/dev/null || true
-    return 0
 }
-
-show_help() {
-    echo ""
-    echo "database - Database management"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db <command> [args]"
-    echo "       db"
-    echo ""
-    printf "   ${CPRIMARY}SANITIZE${RST}\n"
-    echo "       sanitize    ${CPRIMARY}Neutralize / anonymize (DB or file) ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}POSTGRESQL${RST}\n"
-    echo "       drop        ${CPRIMARY}Drop database          ${RST}"
-    echo "       clone       ${CPRIMARY}Clone database         ${RST}"
-    echo "       list        ${CPRIMARY}List all databases     ${RST}"
-    echo "       select      ${CPRIMARY}Set active database    ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}FILES${RST}\n"
-    echo "       backup      ${CPRIMARY}Backup database to zip ${RST}"
-    echo "       restore     ${CPRIMARY}Restore from backup    ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}NOTES${RST}\n"
-    echo "       Use 'db <command> --help' for command details"
-    echo "       Backups stored in ./db_files/"
-    echo ""
-}
-
-help_sanitize() {
-    echo ""
-    echo "db sanitize - Neutralize and/or anonymize a database or backup file"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db sanitize [-a|--all] [database]"
-    echo "       db sanitize [-a|--all] -f|--file [path]"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -a, --all       ${CPRIMARY}Run neutralize then anonymize (no prompt)     ${RST}"
-    echo "       -f, --file      ${CPRIMARY}Process a backup under ./db_files/ instead of a live DB${RST}"
-    echo "                       ${CPRIMARY}If path omitted, lists files and prompts for choice ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       database        ${CPRIMARY}PostgreSQL database (default: SELECTED_DB)      ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}INTERACTIVE${RST}\n"
-    echo "       Without --all, prompts: (1) neutralize only, (2) anonymize only,"
-    echo "       (3) both — same order as restore: neutralize then anonymize."
-    echo ""
-    printf "   ${CPRIMARY}NEUTRALIZE (Odoo CLI)${RST}\n"
-    echo "       Disables crons, mail servers, fetchmail, payments, carriers,"
-    echo "       clears API keys, sets neutralization flag. Requires Odoo container."
-    echo ""
-    printf "   ${CPRIMARY}ANONYMIZE (SQL)${RST}\n"
-    echo "       Replaces emails with safe test addresses (*.@test.test), admin/admin."
-    echo ""
-    printf "   ${CPRIMARY}FILE MODE (-f)${RST}\n"
-    echo "       Imports into a temporary database, applies chosen steps, exports."
-    echo "       Output prefix: anon_ (anonymize only), neutral_ (neutralize only),"
-    echo "       sanitized_ (both). Excludes anon_*, neutral_*, sanitized_* from listing."
-    echo "       Original file is removed after success."
-    echo ""
-    printf "   ${CPRIMARY}SUPPORTED FILE FORMATS${RST}\n"
-    echo "       .sql, .dump, .zip, .7z, .tar.gz, .tgz"
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       db sanitize                    ${CPRIMARY}Prompt ops on SELECTED_DB        ${RST}"
-    echo "       db sanitize -a mydb            ${CPRIMARY}Full sanitize on mydb           ${RST}"
-    echo "       db sanitize -f                 ${CPRIMARY}Pick file from ./db_files/        ${RST}"
-    echo "       db sanitize -a -f backup.zip   ${CPRIMARY}Full sanitize export from file   ${RST}"
-    echo ""
-}
-
-help_backup() {
-    echo ""
-    echo "db backup - Backup database to zip"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db backup [-fs|--filestore] [name]"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -fs, --filestore  ${CPRIMARY}Include filestore in backup          ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       name              ${CPRIMARY}Database name (default: SELECTED_DB) ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       db backup                  ${CPRIMARY}Backup current DB             ${RST}"
-    echo "       db backup --filestore      ${CPRIMARY}Backup with filestore         ${RST}"
-    echo "       db backup mydb             ${CPRIMARY}Backup specific DB            ${RST}"
-    echo "       db backup -fs mydb         ${CPRIMARY}With filestore + specific DB  ${RST}"
-    echo ""
-}
-
-help_drop() {
-    echo ""
-    echo "db drop - Drop database"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db drop [-y|--yes] <name>"
-    echo "       db drop -f|--force [-y|--yes]"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -y, --yes     ${CPRIMARY}Skip confirmation                    ${RST}"
-    echo "       -f, --force   ${CPRIMARY}Drop current DB and restart Odoo     ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       name          ${CPRIMARY}Database name to drop                ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       db drop mydb           ${CPRIMARY}Drop with confirmation            ${RST}"
-    echo "       db drop --yes mydb     ${CPRIMARY}Drop without confirmation         ${RST}"
-    echo "       db drop --force        ${CPRIMARY}Drop current DB + restart Odoo    ${RST}"
-    echo "       db drop -f -y          ${CPRIMARY}Same, skip confirmation           ${RST}"
-    echo ""
-}
-
-help_clone() {
-    echo ""
-    echo "db clone - Clone database"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db clone <source> <destination>"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       source      ${CPRIMARY}Source database name                 ${RST}"
-    echo "       destination ${CPRIMARY}New database name                    ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       db clone production test  "
-    echo "       db clone main backup_main "
-    echo ""
-}
-
-help_list() {
-    echo ""
-    echo "db list - List all databases"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db list"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Shows all PostgreSQL databases with details."
-    echo ""
-}
-
-help_restore() {
-    echo ""
-    echo "db restore - Restore database from backup"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db restore [-s] [-na] [-f] <name>"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -s, --switch    ${CPRIMARY}Switch to restored DB after restore  ${RST}"
-    echo "       -na, --no-anon  ${CPRIMARY}Skip auto-neutralize + anonymize     ${RST}"
-    echo "       -f, --force     ${CPRIMARY}Overwrite existing DB without prompt ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       name        ${CPRIMARY}Target database name (required)          ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}SUPPORTED FORMATS${RST}\n"
-    echo "       .sql, .dump, .zip, .7z, .tar.gz, .tgz"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Lists available backups in ./db_files/ and prompts"
-    echo "       for selection. Automatically neutralizes + anonymizes the"
-    echo "       restored database (use -na to skip). Detects and restores filestore"
-    echo "       via Odoo container (needs Odoo running for correct ownership)."
-    echo "       If the target database already exists, asks for confirmation unless -f."
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       db restore newdb          ${CPRIMARY}Restore + neutralize + anonymize ${RST}"
-    echo "       db restore -s newdb       ${CPRIMARY}Restore, neutralize + switch     ${RST}"
-    echo "       db restore -na newdb      ${CPRIMARY}Restore without neutralize/anon  ${RST}"
-    echo "       db restore -f mydb        ${CPRIMARY}Replace mydb without prompt      ${RST}"
-    echo ""
-}
-
-help_select() {
-    echo ""
-    echo "db select - Set active database"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       db select [-y|--yes] <name>"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -y, --yes    ${CPRIMARY}Skip confirmation for new databases       ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}ARGUMENTS${RST}\n"
-    echo "       name         ${CPRIMARY}Database name to select                   ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Sets SELECTED_DB in .env and restarts Odoo (reboot) when the container runs."
-    echo "       If database doesn't exist, Odoo will create it on next start."
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       db select mydb          ${CPRIMARY}Select existing DB                   ${RST}"
-    echo "       db select --yes newdb   ${CPRIMARY}Select/create new DB                 ${RST}"
-    echo ""
-}
-
-list_databases() {
-    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -l -t 2>/dev/null | \
-        grep -v template | grep -v postgres | awk -F'|' '{gsub(/^ +| +$/, "", $1); if($1!="" && $1!~/^\|/)print "  " $1}'
+# db table: name | size | odoo version | created | last used, selected marked.
+# Created = when the database appeared here (CREATE DATABASE / restore: mtime of
+# its PG_VERSION file); last used = last Odoo login (res_users_log).
+print_db_table() {
+    local rows
+    rows=$(docker exec -i "$DB_CONTAINER" bash -s "$DB_USER" <<'EOS'
+U="$1"
+psql -U "$U" -d postgres -tAc "SELECT datname || '|' || pg_size_pretty(pg_database_size(datname)) || '|' || COALESCE(to_char((pg_stat_file('base/' || oid || '/PG_VERSION', true)).modification, 'YYYY-MM-DD'), '-') FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres' ORDER BY datname;" \
+| while IFS='|' read -r name size created; do
+    v=$(psql -U "$U" -d "$name" -tAc "SELECT latest_version FROM ir_module_module WHERE name = 'base';" 2>/dev/null)
+    used=$(psql -U "$U" -d "$name" -tAc "SELECT to_char(max(create_date), 'YYYY-MM-DD HH24:MI') FROM res_users_log;" 2>/dev/null)
+    echo "${name}|${size}|${v:--}|${created}|${used:--}"
+done
+EOS
+)
+    if [ -z "$rows" ]; then ui_note "no database yet"; return; fi
+    printf "  ${CMUTED}  %-28s %-10s %-10s %-12s %s${RST}\n" "DATABASE" "SIZE" "ODOO" "CREATED" "LAST LOGIN"
+    while IFS='|' read -r name size ver created used; do
+        if [ "$name" = "${SELECTED_DB:-}" ]; then
+            printf "  ${CSUCCESS}●${RST} ${BFG}%-28s${RST} %-10s %-10s %-12s %s\n" "$name" "$size" "$ver" "$created" "$used"
+        else
+            printf "    %-28s %-10s ${CMUTED}%-10s %-12s %s${RST}\n" "$name" "$size" "$ver" "$created" "$used"
+        fi
+    done <<< "$rows"
 }
 
 anonymize_db() {
-    local DB="$1"
-    # test.test / example.com : domaines réservés (RFC 2606) — gardent les champs valides
-    # sans risque d'envoi vers de vrais clients (neutralize désactive aussi les serveurs mail).
-    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB" -v ON_ERROR_STOP=1 <<'EOSQL' >/dev/null 2>&1
--- Partenaires : email unique par enregistrement
+    # test.test is reserved (RFC 2606): fields stay valid, nothing can reach a
+    # real customer (neutralize also disables the outgoing mail servers).
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$1" -q -v ON_ERROR_STOP=1 <<'EOSQL' >/dev/null
+-- Partners: one unique email per record
 UPDATE res_partner
 SET email = CASE
     WHEN NOT COALESCE(active, true) THEN 'disabled@test.test'
@@ -295,7 +307,7 @@ SET email = CASE
 END
 WHERE COALESCE(email, '') <> '';
 
--- Utilisateurs : admin inchangé, logins type email -> adresses de test
+-- Users: email-like logins → test addresses, admin reset to admin/admin
 UPDATE res_users
 SET login = 'user' || id::text || '@test.test'
 WHERE id <> 2 AND login LIKE '%@%';
@@ -304,7 +316,7 @@ UPDATE res_users SET login = 'admin' WHERE id = 2;
 UPDATE res_users SET password = 'admin' WHERE id = 2;
 UPDATE res_users SET active = true WHERE id = 2;
 
--- Champs dérivés / messages (si présents selon version Odoo)
+-- Derived fields / messages (depending on the Odoo version)
 DO $$
 BEGIN
     IF EXISTS (
@@ -326,494 +338,393 @@ EOSQL
 }
 
 neutralize_db() {
-    local DB="$1"
-    docker exec "$ODOO_CONTAINER" odoo neutralize -d "$DB" -c /etc/odoo/odoo.conf --stop-after-init >/dev/null 2>&1
+    if ! container_running "$ODOO_CONTAINER"; then
+        ui_warn "Odoo container not running — neutralize skipped"
+        return 1
+    fi
+    docker exec "$ODOO_CONTAINER" odoo neutralize -d "$1" -c /etc/odoo/odoo.conf --stop-after-init 2>&1 | grep -E "ERROR|Traceback|Error" >&2
+    return "${PIPESTATUS[0]}"
 }
 
-sanitize_pick_ops() {
+sanitize_pick_ops() {   # sets SAN_DO_NEUTRAL / SAN_DO_ANON
     SAN_DO_NEUTRAL=false
     SAN_DO_ANON=false
-    if [ "${1:-}" = "all" ]; then
-        SAN_DO_NEUTRAL=true
-        SAN_DO_ANON=true
+    if [ "${1:-}" = "all" ] || [ "$ASSUME_YES" = true ]; then
+        SAN_DO_NEUTRAL=true; SAN_DO_ANON=true
         return 0
     fi
-    echo "Select sanitization:"
-    echo "  1) Neutralize only (Odoo: crons, mail, keys, …)"
-    echo "  2) Anonymize only (SQL: test emails, admin/admin)"
-    echo "  3) Both (neutralize, then anonymize)"
-    read -r -p "Choice [1-3]: " san_choice
-    echo ""
-    case "$san_choice" in
-        1) SAN_DO_NEUTRAL=true ;;
-        2) SAN_DO_ANON=true ;;
-        3)
-            SAN_DO_NEUTRAL=true
-            SAN_DO_ANON=true
-            ;;
-        *)
-            echo "❌ Invalid choice"
-            return 1
-            ;;
+    pick_one "Sanitization" \
+        "Neutralize only  ${CMUTED}(Odoo: crons, mail servers, API keys...)${RST}" \
+        "Anonymize only   ${CMUTED}(SQL: test emails, admin/admin)${RST}" \
+        "Both             ${CMUTED}(neutralize, then anonymize)${RST}" || return 1
+    case "$PICKED" in
+        Neutralize*) SAN_DO_NEUTRAL=true ;;
+        Anonymize*)  SAN_DO_ANON=true ;;
+        Both*)       SAN_DO_NEUTRAL=true; SAN_DO_ANON=true ;;
     esac
-    return 0
+    echo
 }
 
 sanitize_apply_to_db() {
     local db="$1"
     if $SAN_DO_NEUTRAL; then
-        echo "Neutralizing '$db'..."
-        neutralize_db "$db"
-        echo "✓ Neutralized"
+        ui_step "Neutralizing $db..."
+        neutralize_db "$db" && ui_ok "Neutralized (crons, mail servers, payment providers disabled)" || ui_warn "Neutralize failed on $db"
     fi
     if $SAN_DO_ANON; then
-        echo "Anonymizing '$db'..."
-        anonymize_db "$db"
-        echo "✓ Anonymized (test@test.test emails, admin/admin)"
+        ui_step "Anonymizing $db..."
+        anonymize_db "$db" && ui_ok "Anonymized (emails → @test.test, admin/admin)" || ui_warn "Anonymize failed on $db"
     fi
 }
 
 sanitize_output_prefix() {
-    if $SAN_DO_NEUTRAL && $SAN_DO_ANON; then
-        echo "sanitized_"
-    elif $SAN_DO_NEUTRAL; then
-        echo "neutral_"
-    else
-        echo "anon_"
-    fi
-}
-
-sanitize_pick_file_interactive() {
-    SAN_SELECTED_FILE=""
-    mkdir -p "$ZIP_DIR"
-    local -a list=()
-    local line
-    while IFS= read -r line; do
-        [ -n "$line" ] && list+=("$line")
-    done < <(find "$ZIP_DIR" -maxdepth 1 -type f \( -iname "*.sql" -o -iname "*.dump" -o -iname "*.zip" -o -iname "*.7z" -o -iname "*.tar.gz" -o -iname "*.tgz" \) ! -iname "anon_*" ! -iname "neutral_*" ! -iname "sanitized_*" 2>/dev/null | sort -r)
-    if [ ${#list[@]} -eq 0 ]; then
-        echo "❌ No eligible backup files in $ZIP_DIR"
-        return 1
-    fi
-    echo "Available backups:"
-    local i
-    for i in "${!list[@]}"; do
-        echo "  $((i + 1)). $(basename "${list[$i]}")"
-    done
-    echo ""
-    read -r -p "Select file [1-${#list[@]}]: " CHOICE
-    if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 1 ] || [ "$CHOICE" -gt ${#list[@]} ]; then
-        echo "❌ Invalid selection"
-        return 1
-    fi
-    SAN_SELECTED_FILE="${list[$((CHOICE - 1))]}"
-    return 0
+    if $SAN_DO_NEUTRAL && $SAN_DO_ANON; then echo "sanitized_"
+    elif $SAN_DO_NEUTRAL; then echo "neutral_"
+    else echo "anon_"; fi
 }
 
 sanitize_run_file() {
-    local SELECTED_FILE="$1"
-    local BASENAME sql_file out_prefix out_path
-    BASENAME=$(basename "$SELECTED_FILE")
-    echo "Selected: $BASENAME"
+    local file="$1"
+    local base sql_file out_prefix out_path
+    base=$(basename "$file")
+    ui_title "Sanitize backup" "$base ($(file_size "$file"))"
     TMP_ANON_DB="sanitize_tmp_$$"
-    rm -rf "$TMP_DIR"
-    mkdir -p "$TMP_DIR"
-    sql_file=""
-    if is_archive "$SELECTED_FILE"; then
-        echo "Extracting archive..."
-        extract_archive "$SELECTED_FILE" "$TMP_DIR"
+    rm -rf "$TMP_DIR"; mkdir -p "$TMP_DIR"
+    if is_archive "$file"; then
+        ui_step "Extracting archive..."
+        extract_archive "$file" "$TMP_DIR"
         sql_file=$(find_sql_in_dir "$TMP_DIR")
-        if [ -z "$sql_file" ]; then
-            echo "❌ No .sql or .dump file found in archive"
-            return 1
-        fi
+        [ -z "$sql_file" ] && die "No .sql or .dump file found in the archive"
     else
-        cp "$SELECTED_FILE" "$TMP_DIR/"
-        sql_file="$TMP_DIR/$(basename "$SELECTED_FILE")"
+        cp "$file" "$TMP_DIR/"
+        sql_file="$TMP_DIR/$base"
     fi
-    echo "Creating temporary database..."
-    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$TMP_ANON_DB\";" >/dev/null 2>&1
-    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "CREATE DATABASE \"$TMP_ANON_DB\" OWNER $DB_USER;" >/dev/null
-    echo "Importing data..."
+    ui_step "Importing into a temporary database..."
+    drop_db_force "$TMP_ANON_DB" && create_db "$TMP_ANON_DB" || die "Could not create the temporary database"
     import_sql "$sql_file" "$TMP_ANON_DB"
     sanitize_apply_to_db "$TMP_ANON_DB"
-    echo "Exporting..."
-    docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" "$TMP_ANON_DB" > "$TMP_DIR/dump.sql"
-    rm -f "$sql_file" 2>/dev/null
-    mv "$TMP_DIR/dump.sql" "$sql_file" 2>/dev/null || cp "$TMP_DIR/dump.sql" "$sql_file"
+    ui_step "Exporting..."
+    # Export next to the original dump, then replace it (same name, so the
+    # archive layout is preserved — the dump may itself be named dump.sql).
+    docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" "$TMP_ANON_DB" > "$TMP_DIR/.export.sql" || die "Export failed"
+    mv -f "$TMP_DIR/.export.sql" "$sql_file"
     out_prefix=$(sanitize_output_prefix)
-    out_path="${ZIP_DIR}/${out_prefix}${BASENAME}"
-    if is_archive "$SELECTED_FILE"; then
-        rm -f "$TMP_DIR/dump.sql" 2>/dev/null
-        (cd "$TMP_DIR" && zip -rq "$out_path" .)
+    out_path="${ZIP_DIR}/${out_prefix}${base}"
+    if is_archive "$file"; then
+        rm -f "$TMP_DIR"/.import.log "$TMP_DIR"/.import_pg17.sql
+        (cd "$TMP_DIR" && zip -rq "$out_path" .) || die "zip failed"
     else
         cp "$sql_file" "$out_path"
     fi
-    echo "Cleaning up temp database..."
-    docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$TMP_ANON_DB\";" >/dev/null 2>&1
-    TMP_ANON_DB=""
-    rm -f "$SELECTED_FILE"
-    echo "✓ Created: ${out_prefix}${BASENAME}"
-    echo "  Original file removed"
-    return 0
+    drop_db_force "$TMP_ANON_DB"; TMP_ANON_DB=""
+    rm -f "$file"
+    echo
+    ui_done "Created ${out_prefix}${base} ($(file_size "$out_path")) — original removed"
 }
 
-if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-    show_help
-    exit 0
-fi
+reboot_if_running() {   # reboot_if_running [DB] — (re)start Odoo on DB (empty = multi-db), says so
+    local on="${1:+on $1}"
+    if container_running "$ODOO_CONTAINER"; then
+        ui_step "Starting Odoo ${on:-(multi-db)}..."
+        SELECTED_DB="${1:-}" launch_odoo && ui_ok "Odoo started ${on:-(multi-db)}"
+    else
+        ui_warn "Odoo container not running — start it to use this database"
+    fi
+}
 
-if [ -z "${1:-}" ]; then
-    echo "Selected: ${SELECTED_DB}"
-    echo ""
-    echo "Available databases:"
-    list_databases
-    echo ""
-    printf "  db sanitize [-a] [-f] [db]  ${CPRIMARY}Neutralize / anonymize (DB or file)    ${RST}\n"
-    echo ""
-    echo "PostgreSQL:"
-    printf "  db drop [-y] <name>         ${CPRIMARY}Drop database                          ${RST}\n"
-    printf "  db clone <src> <dst>        ${CPRIMARY}Clone database                         ${RST}\n"
-    printf "  db list                     ${CPRIMARY}Full database list                     ${RST}\n"
-    printf "  db select [-y] <name>       ${CPRIMARY}Select active database                 ${RST}\n"
-    echo ""
-    echo "Files (./db_files/):"
-    printf "  db backup [-fs] [name]      ${CPRIMARY}Backup to zip                          ${RST}\n"
-    printf "  db restore [-s] [-na] [-f] <n> ${CPRIMARY}Restore from backup (neutralize+anon)  ${RST}\n"
-    exit 0
-fi
+# ----------------------------------------------------------------------------
+# Dispatch
+# ----------------------------------------------------------------------------
+parse_global_flags "$@"
+set -- "${ARGS[@]}"
 
-case "$1" in
-    backup)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_backup
-            exit 0
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+    "")
+        require_db_container
+        echo
+        if [ -n "${SELECTED_DB:-}" ]; then
+            printf "  Selected database: ${BFG}%s${RST}\n\n" "$SELECTED_DB"
+        else
+            printf "  Selected database: ${CMUTED}none (multi-db mode)${RST}\n\n"
         fi
-        WITH_FILESTORE=false
-        DBNAME=""
-        shift
-        while [[ $# -gt 0 ]]; do
-            case $1 in
-                -fs|--filestore) WITH_FILESTORE=true; shift ;;
-                *) DBNAME="$1"; shift ;;
-            esac
-        done
-        [ -z "$DBNAME" ] && DBNAME="${SELECTED_DB}"
+        print_db_table
+        echo
+        h_opt "db select [name]" "Set the active database"
+        h_opt "db backup [-fs] [name]" "Backup to ./db_files/"
+        h_opt "db restore [-s] <name>" "Restore a backup (sanitized)"
+        h_opt "db clone <src> <dst>" "Copy a database"
+        h_opt "db drop <name>" "Drop a database"
+        h_opt "db sanitize [-a] [name]" "Neutralize / anonymize"
+        echo
+        ui_note "db --help for details"
+        exit 0 ;;
+esac
+
+SUB="$1"; shift
+[ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && { "help_${SUB}" 2>/dev/null || show_help; exit 0; }
+require_db_container
+
+case "$SUB" in
+    # ------------------------------------------------------------------ list
+    list)
+        [ $# -gt 0 ] && die "db list takes no argument"
+        echo
+        print_db_table
+        echo ;;
+
+    # ---------------------------------------------------------------- select
+    select)
+        DBNAME="${1:-}"
+        [ $# -gt 1 ] && die "Usage: db select [name]"
         if [ -z "$DBNAME" ]; then
-            echo "❌ No database specified and no SELECTED_DB in .env"
-            exit 1
+            mapfile -t ALL_DBS < <(db_list_names)
+            [ ${#ALL_DBS[@]} -eq 0 ] && die "No database to select" "Create one with: db select -y <name>"
+            pick_one "Select the active database" "${ALL_DBS[@]}" || exit 1
+            DBNAME="$PICKED"
+        fi
+        valid_db_name "$DBNAME" || die "Invalid database name: $DBNAME"
+        if [ "$DBNAME" = "${SELECTED_DB:-}" ]; then
+            ui_ok "$DBNAME is already the selected database"
+            exit 0
         fi
         if ! db_exists "$DBNAME"; then
-            echo "❌ Database '$DBNAME' does not exist"
-            exit 1
+            ui_warn "Database '$DBNAME' does not exist"
+            confirm "Select it anyway? Odoo will create it on start" || { ui_note "Cancelled"; exit 0; }
         fi
-        mkdir -p "$ZIP_DIR" "$TMP_DIR"
-        rm -rf "$TMP_DIR"/*
-        DATE_TAG=$(date +%Y%m%d_%H%M%S)
-        BACKUP_ZIP="${ZIP_DIR}/${DBNAME}_${DATE_TAG}.zip"
-        echo "Exporting database '$DBNAME'..."
-        docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" "$DBNAME" > "$TMP_DIR/dump.sql"
-        if [ $? -ne 0 ]; then
-            echo "❌ Failed to export database"
-            exit 1
-        fi
-        if $WITH_FILESTORE; then
-            FS_PATH="$FILESTORE_BASE/$DBNAME"
-            if [ -d "$FS_PATH" ]; then
-                echo "Copying filestore..."
-                cp -r "$FS_PATH" "$TMP_DIR/filestore"
-            else
-                echo "⚠️  No filestore found at $FS_PATH"
-            fi
-        fi
-        echo "Compressing..."
-        cd "$TMP_DIR" && zip -rq "$BACKUP_ZIP" . && cd - >/dev/null
-        echo "✓ Backup created: $BACKUP_ZIP"
-        ;;
+        set_env_value "SELECTED_DB" "$DBNAME"
+        ui_ok "Selected database: $DBNAME"
+        reboot_if_running "$DBNAME" ;;
+
+    # ------------------------------------------------------------------ drop
     drop)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_drop
-            exit 0
-        fi
-        FORCE=false
-        CONFIRM=false
-        DBNAME=""
-        shift
+        FORCE=false; DBNAME=""
         while [[ $# -gt 0 ]]; do
-            case $1 in
+            case "$1" in
                 -f|--force) FORCE=true; shift ;;
-                -y|--yes) CONFIRM=true; shift ;;
+                -*) die "Unknown option: $1" "See: db drop --help" ;;
                 *) DBNAME="$1"; shift ;;
             esac
         done
         if $FORCE; then
-            DBNAME="${SELECTED_DB}"
-            if [ -z "$DBNAME" ]; then
-                echo "❌ No database selected"
-                exit 1
-            fi
+            [ -n "$DBNAME" ] && die "db drop -f works on the selected database, do not pass a name" "To drop another DB: db drop <name>"
+            DBNAME="${SELECTED_DB:-}"
+            [ -z "$DBNAME" ] && die "No selected database (SELECTED_DB is empty)"
         fi
-        if [ -z "$DBNAME" ]; then
-            echo "❌ Usage: db drop [-y] <name>"
-            echo "         db drop -f [-y]"
-            echo "   Use 'db drop --help' for details"
+        [ -z "$DBNAME" ] && die "Usage: db drop <name>  |  db drop -f" "See: db drop --help"
+        if ! db_exists "$DBNAME"; then
+            ui_err "Database '$DBNAME' does not exist"
+            ui_note "db list to see the databases"
             exit 1
         fi
-        if ! $CONFIRM; then
-            if $FORCE; then
-                echo "⚠️  Drop current database '$DBNAME' and restart Odoo? [y/N]"
-            else
-                echo "⚠️  Drop database '$DBNAME'? [y/N]"
-            fi
-            read -r -n 1 confirm
-            echo ""
-            if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-                echo "Cancelled"
-                exit 0
-            fi
-        fi
         if $FORCE; then
-            echo "Stopping Odoo..."
-            docker stop "$ODOO_CONTAINER" >/dev/null 2>&1
-            sleep 1
+            confirm "Drop the selected database '$DBNAME' and restart Odoo on a fresh one?" || { ui_note "Cancelled"; exit 0; }
+            ui_step "Stopping Odoo..."
+            stop_odoo
+        else
+            confirm "Drop database '$DBNAME'?" || { ui_note "Cancelled"; exit 0; }
         fi
-        docker exec "$DB_CONTAINER" dropdb -U "$DB_USER" "$DBNAME" 2>/dev/null
-        echo "✓ Database dropped: $DBNAME"
+        drop_db_force "$DBNAME" || die "Failed to drop '$DBNAME'"
+        remove_filestore "$DBNAME"
+        ui_ok "Database dropped: $DBNAME"
         if $FORCE; then
-            echo "Starting Odoo..."
-            docker start "$ODOO_CONTAINER" >/dev/null 2>&1
-            echo "✓ Odoo restarted (will create new database)"
-        fi
-        ;;
+            ui_step "Starting Odoo (will create $DBNAME)..."
+            launch_odoo || die "Failed to start Odoo"
+            ui_ok "Odoo started"
+        fi ;;
+
+    # ----------------------------------------------------------------- clone
     clone)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_clone
-            exit 0
-        fi
-        if [ -z "${2:-}" ] || [ -z "${3:-}" ]; then
-            echo "❌ Usage: db clone <source> <destination>"
-            echo "   Use 'db clone --help' for details"
-            exit 1
-        fi
-        docker exec "$DB_CONTAINER" createdb -U "$DB_USER" -T "$2" "$3"
-        echo "✓ Database cloned: ${2} → ${3}"
-        ;;
-    list)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_list
-            exit 0
-        fi
-        docker exec "$DB_CONTAINER" psql -U "$DB_USER" -l
-        ;;
-    restore)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_restore
-            exit 0
-        fi
-        SWITCH=false
-        ANON=true
-        RESTORE_FORCE=false
-        DBNAME=""
-        shift
+        FORCE=false; SRC=""; DST=""
         while [[ $# -gt 0 ]]; do
-            case $1 in
-                -s|--switch) SWITCH=true; shift ;;
-                -na|--no-anon) ANON=false; shift ;;
-                -f|--force) RESTORE_FORCE=true; shift ;;
+            case "$1" in
+                -f|--force) FORCE=true; shift ;;
+                -*) die "Unknown option: $1" "See: db clone --help" ;;
+                *) if [ -z "$SRC" ]; then SRC="$1"; elif [ -z "$DST" ]; then DST="$1"; else die "Too many arguments"; fi; shift ;;
+            esac
+        done
+        [ -z "$SRC" ] || [ -z "$DST" ] && die "Usage: db clone <source> <destination>" "See: db clone --help"
+        valid_db_name "$DST" || die "Invalid database name: $DST"
+        [ "$SRC" = "$DST" ] && die "Source and destination are the same"
+        db_exists "$SRC" || die "Source database '$SRC' does not exist" "db list to see the databases"
+        if db_exists "$DST"; then
+            if ! $FORCE; then
+                ui_warn "Database '$DST' already exists"
+                confirm "Replace it?" || { ui_note "Cancelled"; exit 0; }
+            fi
+            drop_db_force "$DST" || die "Failed to drop '$DST'"
+        fi
+        ui_step "Cloning $SRC → $DST..."
+        clone_db "$SRC" "$DST" || die "Clone failed" "Another session holds '$SRC' — retry, or stop Odoo first"
+        ui_done "Database cloned: $SRC → $DST" ;;
+
+    # ---------------------------------------------------------------- backup
+    backup)
+        WITH_FILESTORE=false; DBNAME=""; KEEP=0
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -fs|--filestore) WITH_FILESTORE=true; shift ;;
+                --keep) KEEP="${2:-}"; [[ "$KEEP" =~ ^[0-9]+$ ]] && [ "$KEEP" -gt 0 ] || die "--keep needs a number of backups to keep"; shift 2 ;;
+                -*) die "Unknown option: $1" "See: db backup --help" ;;
                 *) DBNAME="$1"; shift ;;
             esac
         done
-        if [ -z "$DBNAME" ]; then
-            echo "❌ Usage: db restore [-s] [-na] [-f] <name>"
-            echo "   Use 'db restore --help' for details"
-            exit 1
-        fi
-        if db_exists "$DBNAME" && ! $RESTORE_FORCE; then
-            echo "⚠️  Database '$DBNAME' already exists. Restore will DROP and replace it."
-            echo "   Continue? [y/N]"
-            read -r -n 1 confirm
-            echo ""
-            if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-                echo "Cancelled"
-                exit 0
+        force_pane "db backup"
+        [ -z "$DBNAME" ] && DBNAME="${SELECTED_DB:-}"
+        [ -z "$DBNAME" ] && { pick_db "Backup which database?" || exit 1; DBNAME="$PICKED"; echo; }
+        db_exists "$DBNAME" || die "Database '$DBNAME' does not exist" "db list to see the databases"
+        mkdir -p "$ZIP_DIR"; rm -rf "$TMP_DIR"; mkdir -p "$TMP_DIR"
+        BACKUP_ZIP="${ZIP_DIR}/${DBNAME}_$(date +%Y%m%d_%H%M%S).zip"
+        ui_title "Backup" "$DBNAME → $(basename "$BACKUP_ZIP")"
+        ui_step "Dumping database..."
+        docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" "$DBNAME" > "$TMP_DIR/dump.sql" || die "pg_dump failed"
+        if $WITH_FILESTORE; then
+            if [ ! -d "$FILESTORE_BASE/$DBNAME" ]; then
+                ui_warn "No filestore for $DBNAME"
+            elif ! container_running "$ODOO_CONTAINER"; then
+                ui_warn "Odoo container not running — filestore skipped"
+            else
+                ui_step "Copying filestore..."
+                mkdir -p "$TMP_DIR/filestore"
+                # read as root in the odoo container: the bind mount keeps the container's uid
+                docker exec -u 0 "$ODOO_CONTAINER" tar -C "/var/lib/odoo/filestore/${DBNAME}" -cf - . | tar -xf - -C "$TMP_DIR/filestore" || die "Filestore copy failed"
             fi
         fi
-        mkdir -p "$ZIP_DIR"
-        IMPORT_LIST=($(find "$ZIP_DIR" -maxdepth 1 -type f \( -iname "*.sql" -o -iname "*.dump" -o -iname "*.zip" -o -iname "*.7z" -o -iname "*.tar.gz" -o -iname "*.tgz" \) 2>/dev/null | sort -r))
-        if [ ${#IMPORT_LIST[@]} -eq 0 ]; then
-            echo "❌ No backup files found in $ZIP_DIR"
-            exit 1
-        fi
-        echo "Available backups:"
-        for i in "${!IMPORT_LIST[@]}"; do
-            echo "  $((i + 1)). $(basename "${IMPORT_LIST[$i]}")"
+        ui_step "Compressing..."
+        (cd "$TMP_DIR" && zip -rq "$BACKUP_ZIP" .) || die "zip failed"
+        echo
+        ui_done "Backup created: db_files/$(basename "$BACKUP_ZIP") ($(file_size "$BACKUP_ZIP"))"
+        if [ "$KEEP" -gt 0 ]; then
+            # Rotation: this database's own backups (<name>_<date>.zip), newest first
+            OLD=$(find "$ZIP_DIR" -maxdepth 1 -type f -name "${DBNAME}_[0-9]*_[0-9]*.zip" | sort -r | tail -n +$((KEEP + 1)))
+            if [ -n "$OLD" ]; then
+                echo "$OLD" | while read -r f; do rm -f "$f"; ui_note "removed $(basename "$f")"; done
+            fi
+            ui_note "$(find "$ZIP_DIR" -maxdepth 1 -type f -name "${DBNAME}_[0-9]*_[0-9]*.zip" | wc -l | tr -d ' ') backup(s) of ${DBNAME} kept (--keep ${KEEP})"
+        fi ;;
+
+    # --------------------------------------------------------------- restore
+    restore)
+        SWITCH=false; ANON=true; FORCE=false; FILE=""; DBNAME=""; LAST=false
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -s|--switch) SWITCH=true; shift ;;
+                -l|--last) LAST=true; shift ;;
+                -na|--no-sanitize) ANON=false; shift ;;
+                -f|--force) FORCE=true; shift ;;
+                -F|--file) FILE="${2:-}"; [ -z "$FILE" ] && die "--file needs a path"; shift 2 ;;
+                -*) die "Unknown option: $1" "See: db restore --help" ;;
+                *) DBNAME="$1"; shift ;;
+            esac
         done
-        echo ""
-        read -p "Select backup [1-${#IMPORT_LIST[@]}]: " CHOICE
-        if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 1 ] || [ "$CHOICE" -gt ${#IMPORT_LIST[@]} ]; then
-            echo "❌ Invalid selection"
-            exit 1
+        [ -z "$DBNAME" ] && die "Usage: db restore [-s] [-f] [-na] [--file FILE | --last] <name>" "See: db restore --help"
+        valid_db_name "$DBNAME" || die "Invalid database name: $DBNAME"
+        $LAST && [ -n "$FILE" ] && die "--last is exclusive with --file"
+        force_pane "db restore"
+        if $LAST; then
+            FILE=$(find "$ZIP_DIR" -maxdepth 1 -type f -name "${DBNAME}_*" \( "${BACKUP_GLOB[@]}" \) 2>/dev/null | sort -r | head -1)
+            [ -z "$FILE" ] && FILE=$(list_backup_files exclude_sanitized | head -1)
+            [ -z "$FILE" ] && die "No backup file in ./db_files/" "db backup first, or copy a backup there"
+            ui_note "latest backup: $(basename "$FILE")"
         fi
-        SELECTED_FILE="${IMPORT_LIST[$((CHOICE - 1))]}"
-        echo "Selected: $(basename "$SELECTED_FILE")"
-        SQL_FILE=""
-        FILESTORE_FOUND=""
+        EXISTS=false
+        if db_exists "$DBNAME"; then
+            EXISTS=true
+            if ! $FORCE; then
+                ui_warn "Database '$DBNAME' already exists"
+                confirm "Replace it with the backup?" || { ui_note "Cancelled"; exit 0; }
+            fi
+        fi
+        if [ -n "$FILE" ]; then
+            SELECTED_FILE=$(resolve_backup_file "$FILE") || die "File not found: $FILE" "Backups live in ./db_files/"
+        else
+            pick_backup_file
+            SELECTED_FILE="$PICKED_FILE"
+        fi
+        ui_title "Restore" "$(basename "$SELECTED_FILE") ($(file_size "$SELECTED_FILE")) → $DBNAME"
+        SQL_FILE=""; FILESTORE_FOUND=""
         if is_archive "$SELECTED_FILE"; then
-            rm -rf "$TMP_DIR"
-            mkdir -p "$TMP_DIR"
-            echo "Extracting archive..."
+            rm -rf "$TMP_DIR"; mkdir -p "$TMP_DIR"
+            ui_step "Extracting archive..."
             extract_archive "$SELECTED_FILE" "$TMP_DIR"
             SQL_FILE=$(find_sql_in_dir "$TMP_DIR")
-            if [ -z "$SQL_FILE" ]; then
-                echo "❌ No .sql or .dump file found in archive"
-                exit 1
-            fi
+            [ -z "$SQL_FILE" ] && die "No .sql or .dump file found in the archive"
             FILESTORE_FOUND=$(find "$TMP_DIR" -type d -name "filestore" | head -n 1)
         else
             SQL_FILE="$SELECTED_FILE"
         fi
-        echo "Creating database '$DBNAME'..."
-        if ! drop_db_force "$DBNAME"; then
-            echo "❌ Failed to drop existing database '$DBNAME'"
-            exit 1
+        STOPPED=false
+        if $EXISTS; then
+            # Odoo keeps the registry of every database it served: replacing one
+            # under it needs a restart (selected DB, or any DB in multi-db mode).
+            if odoo_may_use_db "$DBNAME"; then
+                if [ -n "${SELECTED_DB:-}" ]; then ui_step "Stopping Odoo (running on $DBNAME)..."
+                else ui_step "Stopping Odoo (multi-db: $DBNAME may be loaded)..."; fi
+                stop_odoo && STOPPED=true && ui_ok "Odoo stopped"
+            fi
+            ui_step "Replacing database $DBNAME..."
+            drop_db_force "$DBNAME" || die "Failed to drop '$DBNAME'"
+        else
+            ui_step "Creating database $DBNAME..."
         fi
-        if ! docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DBNAME\" OWNER $DB_USER;"; then
-            echo "❌ Failed to create database '$DBNAME'"
-            exit 1
-        fi
-        echo "Importing data..."
+        create_db "$DBNAME" || die "Failed to create '$DBNAME'"
+        ui_step "Importing data..."
         import_sql "$SQL_FILE" "$DBNAME"
         if [ -n "$FILESTORE_FOUND" ]; then
-            echo "Restoring filestore..."
-            if restore_filestore_from_dir "$FILESTORE_FOUND" "$DBNAME"; then
-                echo "✓ Filestore restored"
-            else
-                exit 1
-            fi
+            ui_step "Restoring filestore..."
+            restore_filestore_from_dir "$FILESTORE_FOUND" "$DBNAME" && ui_ok "Filestore restored" || ui_warn "Filestore not restored"
         fi
         if $ANON; then
-            echo "Neutralizing database..."
-            neutralize_db "$DBNAME"
-            echo "✓ Database neutralized"
-            echo "Anonymizing database..."
-            anonymize_db "$DBNAME"
-            echo "✓ Database anonymized"
+            SAN_DO_NEUTRAL=true; SAN_DO_ANON=true
+            sanitize_apply_to_db "$DBNAME"
+        else
+            ui_warn "Not sanitized (-na): crons and mail servers are still active"
         fi
-        echo "✓ Database restored: $DBNAME"
         if $SWITCH; then
             set_env_value "SELECTED_DB" "$DBNAME"
-            echo "✓ Switched to $DBNAME"
-            echo "  Restart Odoo with 'r' to apply"
+            ui_ok "Selected database: $DBNAME"
+            reboot_if_running "$DBNAME"
+        elif $STOPPED; then
+            reboot_if_running "${SELECTED_DB:-}"
         fi
-        ;;
+        echo
+        ui_done "Database restored: $DBNAME" ;;
+
+    # -------------------------------------------------------------- sanitize
     sanitize)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_sanitize
-            exit 0
-        fi
-        SAN_ALL=false
-        SAN_FILE_MODE=false
-        SAN_FILE_PATH=""
-        DBNAME=""
-        shift
+        SAN_ALL=false; FILE_MODE=false; FILE=""; DBNAME=""
         while [[ $# -gt 0 ]]; do
-            case $1 in
-                -a|--all)
-                    SAN_ALL=true
-                    shift
-                    ;;
-                -f|--file)
-                    SAN_FILE_MODE=true
-                    if [[ -n "${2:-}" && "$2" != -* ]]; then
-                        SAN_FILE_PATH="$2"
-                        shift 2
-                    else
-                        shift
-                    fi
-                    ;;
-                *)
-                    DBNAME="$1"
-                    shift
-                    ;;
-            esac
-        done
-        if $SAN_ALL; then
-            sanitize_pick_ops all || exit 1
-        else
-            sanitize_pick_ops || exit 1
-        fi
-        if $SAN_FILE_MODE; then
-            SAN_SEL=""
-            if [ -n "$SAN_FILE_PATH" ]; then
-                SAN_SEL="$SAN_FILE_PATH"
-                if [ ! -f "$SAN_SEL" ] && [ -f "$ZIP_DIR/$(basename "$SAN_SEL")" ]; then
-                    SAN_SEL="$ZIP_DIR/$(basename "$SAN_SEL")"
-                fi
-                if [ ! -f "$SAN_SEL" ]; then
-                    echo "❌ File not found: $SAN_FILE_PATH"
-                    exit 1
-                fi
-            else
-                sanitize_pick_file_interactive || exit 1
-                SAN_SEL="$SAN_SELECTED_FILE"
-            fi
-            sanitize_run_file "$SAN_SEL" || exit 1
-            exit 0
-        fi
-        [ -z "$DBNAME" ] && DBNAME="${SELECTED_DB}"
-        if [ -z "$DBNAME" ]; then
-            echo "❌ No database specified and no SELECTED_DB in .env"
-            exit 1
-        fi
-        if ! db_exists "$DBNAME"; then
-            echo "❌ Database '$DBNAME' does not exist"
-            exit 1
-        fi
-        sanitize_apply_to_db "$DBNAME"
-        echo "✓ Sanitize finished: $DBNAME"
-        ;;
-    select)
-        if [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ]; then
-            help_select
-            exit 0
-        fi
-        FORCE=false
-        DBNAME=""
-        shift
-        while [[ $# -gt 0 ]]; do
-            case $1 in
-                -y|--yes) FORCE=true; shift ;;
+            case "$1" in
+                -a|--all) SAN_ALL=true; shift ;;
+                -F|--file)
+                    FILE_MODE=true
+                    if [[ -n "${2:-}" && "$2" != -* ]]; then FILE="$2"; shift 2; else shift; fi ;;
+                -f) die "Unknown option: -f" "Did you mean --file (-F)?" ;;
+                -*) die "Unknown option: $1" "See: db sanitize --help" ;;
                 *) DBNAME="$1"; shift ;;
             esac
         done
-        if [ -z "$DBNAME" ]; then
-            echo "❌ Usage: db select [-y|--yes] <name>"
-            echo "   Use 'db select --help' for details"
-            exit 1
-        fi
-        if ! db_exists "$DBNAME"; then
-            if ! $FORCE; then
-                echo "⚠️  Database '$DBNAME' does not exist"
-                echo "   Odoo will create it on startup. Continue? [y/N]"
-                read -r -n 1 confirm
-                echo ""
-                if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-                    echo "Cancelled"
-                    exit 0
-                fi
+        force_pane "db sanitize"
+        if $FILE_MODE; then
+            if [ -n "$FILE" ]; then
+                SELECTED_FILE=$(resolve_backup_file "$FILE") || die "File not found: $FILE" "Backups live in ./db_files/"
+            else
+                pick_backup_file exclude_sanitized
+                SELECTED_FILE="$PICKED_FILE"
+                echo
             fi
+            if $SAN_ALL; then sanitize_pick_ops all; else sanitize_pick_ops || exit 1; fi
+            sanitize_run_file "$SELECTED_FILE"
+            exit 0
         fi
-        set_env_value "SELECTED_DB" "$DBNAME"
-        echo "✓ Selected database: $DBNAME"
-        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$ODOO_CONTAINER"; then
-            bash "${_PROJECT_ROOT}/.data/scripts/commands/reboot.sh" || exit 1
-        else
-            echo "⚠️  Odoo container not running; start it to use this database."
-        fi
-        ;;
+        [ -z "$DBNAME" ] && DBNAME="${SELECTED_DB:-}"
+        [ -z "$DBNAME" ] && { pick_db "Sanitize which database?" || exit 1; DBNAME="$PICKED"; echo; }
+        db_exists "$DBNAME" || die "Database '$DBNAME' does not exist" "db list to see the databases"
+        if $SAN_ALL; then sanitize_pick_ops all; else sanitize_pick_ops || exit 1; fi
+        sanitize_apply_to_db "$DBNAME"
+        echo
+        ui_done "Sanitize finished: $DBNAME" ;;
+
     *)
-        echo "❌ Unknown command: $1"
-        echo "   Use 'db --help' for available commands"
-        exit 1
-        ;;
+        die "Unknown command: $SUB" "db --help for the list of commands" ;;
 esac

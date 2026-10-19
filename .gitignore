@@ -5,3 +5,6 @@
 # Files
 .data/host_project_path.map
 addons/.pre-commit-config.yaml
+.env.secrets
+.DS_Store
+.data/web-terminal/node_modules

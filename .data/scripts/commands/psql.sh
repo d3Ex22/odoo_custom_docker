@@ -1,61 +1,49 @@
 #!/bin/bash
 # ============================================================================
-# psql - PostgreSQL shell
+# psql - PostgreSQL shell / one-shot queries on a database
 # ============================================================================
-# Usage: psql [-d <db>] [psql args] [-h|--help]
+# Usage: psql [-d <db>] [psql arguments] | psql [-h|--help]
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 
 show_help() {
-    echo ""
-    echo "psql - PostgreSQL shell"
-    echo ""
-    printf "   ${CPRIMARY}USAGE${RST}\n"
-    echo "       psql [-d|--database <name>] [psql options]"
-    echo ""
-    printf "   ${CPRIMARY}OPTIONS${RST}\n"
-    echo "       -d, --database <db>  ${CPRIMARY}Database name (default: SELECTED_DB) ${RST}"
-    echo ""
-    printf "   ${CPRIMARY}DESCRIPTION${RST}\n"
-    echo "       Opens a psql shell in the PostgreSQL container."
-    echo "       If no database specified, uses current SELECTED_DB."
-    echo ""
-    printf "   ${CPRIMARY}EXAMPLES${RST}\n"
-    echo "       psql                     ${CPRIMARY}Connect to selected DB     ${RST}"
-    echo "       psql --database mydb     ${CPRIMARY}Connect to 'mydb'          ${RST}"
-    echo "       psql -c 'SELECT 1'       ${CPRIMARY}Run single command         ${RST}"
-    echo ""
+    h_name "psql" "PostgreSQL shell on a database"
+    h_sec "USAGE"
+    h_use "psql [-d <database>] [psql options]"
+    h_sec "OPTIONS"
+    h_opt "-d, --database <db>" "Database (default: SELECTED_DB, asked when empty)"
+    h_text "Every other argument is passed to psql (-c, -f, -tA, ...)."
+    h_sec "EXAMPLES"
+    h_ex "psql" "Interactive shell on SELECTED_DB (side pane)"
+    h_ex "psql -d mydb" "Interactive shell on mydb"
+    h_ex "psql -tAc 'SELECT count(*) FROM res_users'" "One-shot query, plain output"
+    h_ex "psql -f script.sql" "Run a file (path inside the utils container)"
+    h_end
 }
 
 DBNAME=""
-ARGS=()
-
+PSQL_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -d|--database)
-            DBNAME="$2"
-            shift 2
-            ;;
-        *)
-            ARGS+=("$1")
-            shift
-            ;;
+        -h|--help) show_help; exit 0 ;;
+        -d|--database) DBNAME="${2:-}"; [ -z "$DBNAME" ] && die "-d needs a database name"; shift 2 ;;
+        *) PSQL_ARGS+=("$1"); shift ;;
     esac
 done
 
-if [ -z "$DBNAME" ]; then
-    DBNAME="${SELECTED_DB}"
-fi
+require_db_container
+[ -z "$DBNAME" ] && DBNAME="${SELECTED_DB:-}"
+[ -z "$DBNAME" ] && { pick_db "Which database?" || exit 1; DBNAME="$PICKED"; }
+db_exists "$DBNAME" || die "Database '$DBNAME' does not exist" "db list to see the databases"
 
-if [ -z "$DBNAME" ]; then
-    echo "❌ No database specified and no SELECTED_DB found"
-    echo "   Use: psql -d <database>"
-    exit 1
+# Interactive shell (no psql argument) from the utils terminal: side pane,
+# closed when psql exits (\q). One-shot queries stay inline.
+if [ ${#PSQL_ARGS[@]} -eq 0 ] && in_utils_terminal; then
+    run_in_pane "psql" "50%" close docker exec -it "$DB_CONTAINER" psql -U "$DB_USER" -d "$DBNAME" || exit 1
+    ui_ok "psql on '$DBNAME' opened in a side pane"
+    ui_note "\\q closes it"
+    exit 0
 fi
-
-docker exec -it "$DB_CONTAINER" psql -d "$DBNAME" -U "$DB_USER" "${ARGS[@]}"
+TTY=""; [ -t 0 ] && TTY="-t"
+exec docker exec -i $TTY "$DB_CONTAINER" psql -U "$DB_USER" -d "$DBNAME" "${PSQL_ARGS[@]}"

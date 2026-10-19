@@ -1,8 +1,8 @@
 # =============================================================================
 # ODOO VERSION COMPATIBILITY MAP
 # =============================================================================
-# Read-only lookup table — do NOT edit manually.
-# Update this file only when official Odoo compatibility changes.
+# Lookup table read by `conf` (validation) and `rebuild`; update it when the
+# official Odoo compatibility changes.
 #
 # Format (colon-separated, no spaces):
 #   odoo_version:default_python:compatible_python:default_postgres:compatible_postgres

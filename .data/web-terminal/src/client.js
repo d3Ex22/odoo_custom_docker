@@ -29,13 +29,6 @@ const NERD_FONT_CANDIDATES = [
     "ComicShannsMono Nerd Font",
 ];
 
-function isAllowedSystemFont(family) {
-    const name = family.trim();
-    if (name === "monospace") return true;
-    if (/ mono$/i.test(name) || / mono /i.test(name)) return false;
-    return true;
-}
-
 function isAllowedNerdFontFamily(family) {
     const name = family.trim();
     if (!name.includes("Nerd Font") && !name.endsWith(" NF")) return false;
@@ -76,9 +69,7 @@ async function discoverLocalNerdFonts() {
 
 async function resolveFontFamily(fontFamily, fontSize) {
     const parts = parseFontFamilyList(fontFamily);
-    const fallbacks = parts.filter(
-        (part) => !part.includes("Nerd Font") && !part.endsWith(" NF") && isAllowedSystemFont(part),
-    );
+    const fallbacks = parts.filter((part) => !part.includes("Nerd Font") && !part.endsWith(" NF"));
     const fromConfig = parts.filter(isAllowedNerdFontFamily);
     const discovered = await discoverLocalNerdFonts();
     const candidates = [...new Set([...fromConfig, ...NERD_FONT_CANDIDATES, ...discovered])];
@@ -178,14 +169,6 @@ function copyWithCopyEvent(text) {
     return ok && copied;
 }
 
-function fallbackCopy(text) {
-    try {
-        return copyWithCopyEvent(text);
-    } catch (_) {
-        return false;
-    }
-}
-
 function copyToClipboard(text) {
     if (!text) return Promise.resolve(false);
 
@@ -196,7 +179,7 @@ function copyToClipboard(text) {
     };
     const onFailure = () => {
         pendingClipboard = text;
-        showOverlay(config.msgCopyFailed || "Copy blocked — click terminal and press Cmd+C", 1500);
+        showOverlay(config.msgCopyFailed, 1500);
         return false;
     };
 
@@ -205,13 +188,8 @@ function copyToClipboard(text) {
     }
 
     if (navigator.clipboard?.writeText) {
-        return navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
-            if (fallbackCopy(text)) return onSuccess();
-            return onFailure();
-        });
+        return navigator.clipboard.writeText(text).then(onSuccess).catch(onFailure);
     }
-
-    if (fallbackCopy(text)) return Promise.resolve(onSuccess());
     return Promise.resolve(onFailure());
 }
 
@@ -290,9 +268,6 @@ async function init() {
     showOverlay(config.msgConnecting);
 
     const container = document.getElementById("terminal");
-    container.style.width = window.innerWidth + "px";
-    container.style.height = window.innerHeight + "px";
-
     await document.fonts.ready;
 
     const fontFamily = await resolveFontFamily(config.fontFamily, config.fontSize);
@@ -302,7 +277,7 @@ async function init() {
         fontSize: config.fontSize,
         fontWeight: config.fontWeight,
         fontWeightBold: config.fontWeightBold,
-        scrollback: config.scrollback ?? 50000,
+        scrollback: config.scrollback,
         theme: config.theme,
         allowProposedApi: true,
     });
@@ -314,23 +289,19 @@ async function init() {
     setupTmuxClipboard();
     try { terminal.loadAddon(new ClipboardAddon()); } catch (_) {}
     try { terminal.loadAddon(new Unicode11Addon()); terminal.unicode.activeVersion = "11"; } catch (_) {}
+    // WebGL renderer: skipped on Apple platforms, where it blurs the glyphs of the Nerd Fonts
     if (!/Mac|iPhone|iPad/i.test(navigator.userAgent)) {
         try { terminal.loadAddon(new WebglAddon()); } catch (_) {}
     }
 
     terminal.onData(sendInput);
-    terminal.onResize(() => sendResize());
+    terminal.onResize(() => sendResize());   // fit() changed cols/rows → one resize frame to the pty
 
     doFit();
 
     window.addEventListener("resize", () => {
-        container.style.width = window.innerWidth + "px";
-        container.style.height = window.innerHeight + "px";
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            doFit();
-            sendResize();
-        }, RESIZE_DEBOUNCE_MS);
+        resizeTimer = setTimeout(doFit, RESIZE_DEBOUNCE_MS);
     });
 
     connect();

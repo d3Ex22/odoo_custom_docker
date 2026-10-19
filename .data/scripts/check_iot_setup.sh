@@ -4,7 +4,7 @@
 # IoT Box mode — ASYNC part (runs in separate tmux pane alongside Odoo)
 #
 # Handles:
-#   - System deps (sudo, mtr, libcups2-dev, inotify-tools)
+#   - System deps (sudo, mtr, inotify-tools)
 #   - Python deps (pyudev, zeroconf)
 #   - CUPS virtual printers (office + ZPL label + receipt)
 #   - DB setup (mark iot module for install, create iot.box record)
@@ -37,7 +37,6 @@ echo "▸ System packages..."
 APT_NEEDED=""
 command -v sudo &>/dev/null || APT_NEEDED="$APT_NEEDED sudo"
 command -v mtr &>/dev/null || APT_NEEDED="$APT_NEEDED mtr-tiny"
-dpkg -s libcups2-dev &>/dev/null 2>&1 || APT_NEEDED="$APT_NEEDED libcups2-dev"
 command -v inotifywait &>/dev/null || APT_NEEDED="$APT_NEEDED inotify-tools"
 if [ -n "$APT_NEEDED" ]; then
     apt-get update -qq && apt-get install -y -qq $APT_NEEDED >/dev/null 2>&1
@@ -56,8 +55,6 @@ fi
 # ============================================================================
 echo ""
 echo "▸ Python packages..."
-uv pip install pyudev zeroconf 2>&1 | tail -2
-
 IOT_REQ="/opt/odoo/odoo/addons/iot_box_image/configuration/requirements.txt"
 if [ -f "$IOT_REQ" ]; then
     uv pip install -r "$IOT_REQ" 2>&1 | tail -2 || true
@@ -207,8 +204,8 @@ else
         sleep 2
     done
 
-    export PGPASSWORD="odoo"
-    PG="psql -h db -U odoo -d $DB"
+    export PGPASSWORD="${PASSWORD:-odoo}"
+    PG="psql -h ${HOST:-db} -U ${USER:-odoo} -d $DB"
 
     IOT_STATE=$($PG -tAc "SELECT state FROM ir_module_module WHERE name = 'iot' LIMIT 1" 2>/dev/null)
     if [ -z "$IOT_STATE" ]; then
@@ -275,7 +272,7 @@ try:
     c = cups.Connection()
     printers = c.getPrinters()
     jobs = c.getJobs()
-except:
+except Exception:
     L(f' {RED}✗ CUPS unavailable{RST}')
     sys.exit(0)
 
@@ -343,9 +340,8 @@ tmux set-hook -t logs pane-focus-in \
 # ============================================================================
 # Log watcher (bottom pane — stays in current pane)
 # ============================================================================
-echo -e "\033[1m\033[36m 📋 Print Jobs Log\033[0m"
-echo -e "\033[2m$(printf '─%.0s' $(seq 1 49))\033[0m"
-echo ""
+printf '\033[1m\033[36m 📋 Print Jobs Log\033[0m\n'
+printf '\033[2m%s\033[0m\n\n' "$(printf '─%.0s' $(seq 1 49))"
 
 CUPS_LOG="/var/log/cups/error_log"
 mkdir -p /var/log/cups 2>/dev/null
