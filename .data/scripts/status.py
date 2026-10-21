@@ -383,10 +383,11 @@ class Status:
             mcp_up = False
         try:
             with open(f"{SHARED}/.last_start") as fh:
-                last_start, last_errors = fh.read().strip().split("|")[:2]
+                last_start, last_errors, start_at = (fh.read().strip().split("|") + ["0"])[:3]
         except (OSError, ValueError):
-            last_start, last_errors = "", "0"
-        proc_style = off if not proc_up else warn if last_start in ("errors", "failed", "dead") else on
+            last_start, last_errors, start_at = "", "0", "0"
+        # red: process gone or the start blocked Odoo (failed / dead / timeout); orange: up, with errors in the log
+        proc_style = off if not proc_up or last_start in ("failed", "dead") else warn if last_start in ("errors", "timeout") else on
         ent_style = {"ok": on, "missing": off}.get(ent_state, warn)
         active_db = env.get("SELECTED_DB") or "multi-db"
 
@@ -407,7 +408,7 @@ class Status:
         env_version = local_version()
 
         data = {"project": project, "odoo": proc_up, "db": db_up, "mcp": mcp_up, "mail": bool(cs.get(f"{project}_mail", {}).get("running")),
-                "enterprise": ent_state, "enterprise_version": ent_ver, "start": last_start, "start_errors": int(last_errors or 0),
+                "enterprise": ent_state, "enterprise_version": ent_ver, "start": last_start, "start_errors": int(last_errors or 0), "start_at": int(start_at or 0),
                 "database": env.get("SELECTED_DB", ""), "odoo_version": inst_odoo or wanted["odoo"], "build": inst_build,
                 "rebuild": need_rebuild, "env_changed": env_changed, "env_update": env_update_info(env, env_version),
                 "env_version": env_version, "setup": not os.path.exists(f"{SHARED}/.setup_done"),

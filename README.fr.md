@@ -167,9 +167,14 @@ rafraîchir, jamais.
 - **Pastille `ODOO`** : la vue courante (`ODOO`, `LOGS`, `UTILS`, `MAIL`, `MCP`). Chaque vue ouverte
   reste montée quand on change d'onglet : Odoo garde sa page, les terminaux leur historique.
 - **Trois points** : le processus Odoo, PostgreSQL et Enterprise — vert ok, rouge arrêté / absent,
-  orange quand Odoo a démarré **avec des erreurs** ou qu'Enterprise n'est pas sur la même série qu'Odoo.
-  Survolez-les : l'infobulle donne le détail — dernier démarrage et son nombre d'erreurs, MCP up / down,
-  version d'Enterprise, base sélectionnée, version et build d'Odoo.
+  orange quand Enterprise n'est pas sur la même série qu'Odoo. Survolez-les : l'infobulle donne le
+  détail — issue du dernier démarrage, MCP up / down, version d'Enterprise, base sélectionnée, version
+  et build d'Odoo.
+- **Issue du dernier démarrage**, distinguée parce que l'une bloque Odoo et l'autre non : `✖` rouge
+  (point, drapeau, titre de l'onglet du navigateur) quand le démarrage a **échoué** — base non chargée,
+  processus sorti — Odoo ne répond pas et le panneau propose **restart odoo** ; `⚠ N` orange quand Odoo
+  tourne mais que **N erreurs** ont été journalisées au démarrage (un module qui n'a pas pu se mettre à
+  jour…). La barre de statut d'utils colore sa pastille `ODOO` de la même façon.
 - **Progression** à la place de la pastille de vue pendant les actions longues : `starting · 0:04`
   pendant le démarrage d'Odoo, `odoo 3/7 · 1:20` pendant un `rebuild` (image en cours, temps écoulé qui
   défile).
@@ -394,13 +399,14 @@ Codes de sortie : `0` ok, `1` erreur, `2` avec `-w` : Odoo a démarré **avec de
 | `test [-t TAGS] [--on DB] [--keep] [--no-demo] [--coverage] [-v] <modules>` | | Lance les tests des modules (`--test-enable`) sur une base jetable `test_<module>_<heure>` — neuve avec données de démo et `-i`, ou clone de `--on DB` avec `-u` — puis la supprime. L'Odoo en cours n'est pas touché ; code 1 si un test échoue ; log complet dans `.data/volumes/shared/tests/`. `--coverage` affiche la couverture des modules testés et écrit un rapport HTML sous `.data/volumes/odoo-container/odoo/coverage/` |
 | `debug [on\|off]` | | Lance Odoo sous **debugpy** et écrit `.vscode/launch.json` (`Attach: Odoo (<nom>)`, mappings de chemins pour vos addons, Odoo et Enterprise). Le port est publié sur un port libre de l'hôte (ou `DEBUGPY_PORT`) ; `debug` seul l'affiche. `DEBUGPY=true` persiste à travers `r` / `u` |
 | `watch [on\|off]` | | Pane latéral qui lance `u <module> -w` à chaque sauvegarde d'un `__manifest__.py` sous `addons/` (seuls les manifests déclenchent). Persisté dans `.env` (`AUTO_UPDATE`), rouvert au `compose up` |
+| `logs [NIVEAU] [-g MOTIF]` | | Enregistrements du **run courant** au niveau `NIVEAU` et au-dessus (`DEBUG`, `INFO`, `WARNING` — défaut —, `ERROR`, `CRITICAL`), tracebacks compris, dans un pane latéral : `logs error` après un `u`, `logs info -g mon_module`. Le log en direct reste dans l'onglet Logs du hub |
 
 ### Base de données (`db`)
 
 | Commande | Description |
 |----------|-------------|
 | `db` | Vue d'ensemble : base sélectionnée et liste |
-| `db list` | Bases avec taille et version Odoo, la base sélectionnée est marquée ● |
+| `db list` | Bases avec taille et version Odoo, la base sélectionnée est marquée ●, puis les sauvegardes de `./db_files/` |
 | `db select [nom]` | Définit `SELECTED_DB` et redémarre Odoo (sélecteur si omis ; demande confirmation si la base n'existe pas) |
 | `db drop [-f] <nom>` | Supprime une base et son filestore. `-f` réinitialise la base **sélectionnée** (stop → drop → start sur une base vierge) |
 | `db clone [-f] <src> <dst>` | Copie une base (et son filestore) ; `-f` remplace `dst` |
@@ -651,7 +657,7 @@ arrière-plan, log dans `.data/volumes/shared/env-update.log`). `.data/.template
 du template pour que le passage suivant supprime aussi les fichiers abandonnés par le template. `-n`
 prévisualise sans écrire.
 
-**Releases.** `.data/VERSION` est la version de l'environnement (`4.0.0`, voir
+**Releases.** `.data/VERSION` est la version de l'environnement (`4.0.1`, voir
 [`CHANGELOG.md`](CHANGELOG.md)). Toutes les heures, la boucle de statut la compare à celle du template
 sur `ENV_TEMPLATE_REF` (vide = branche par défaut du dépôt, c'est-à-dire la ligne de release courante —
 `v4`) ; quand une plus récente est publiée, l'onglet affiche un drapeau `v4.1` et le hub propose **update

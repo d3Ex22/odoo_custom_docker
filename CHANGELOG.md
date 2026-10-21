@@ -3,6 +3,18 @@
 The release of a project copy is in `.data/VERSION`; the hub flags a newer one and `env-update`
 applies it (see [README](README.md#keeping-a-project-up-to-date)).
 
+## 4.0.1
+
+- Hub: the "odoo starting" overlay no longer stays on when Odoo was started without `-w`.
+- Hub: black screen after a restart shorter than a poll interval (frame reloaded on each start).
+- Hub: menu entries were hidden behind the starting overlay.
+- Hub: menu entries did nothing while Odoo had the focus (focus grabbed back by the home menu).
+- Hub: typing in the scan / config inputs was impossible while Odoo had the focus.
+- Hub: the page reloads itself after the hub is recreated (stale JS / CSS after `env-update`).
+- Hub / status bar: a blocked start (red, ✖) is told apart from a start with errors in the log (orange, ⚠).
+- `logs [LEVEL] [-g PAT]` command and `odoo_logs(level)` MCP parameter: records of the current run at that level and above.
+- `db` / `db list` also list the backups of `./db_files/`.
+
 ## 4.0.0
 
 Several projects at once, a hub, agents, one toolbox. A copy of version 3 upgrades with

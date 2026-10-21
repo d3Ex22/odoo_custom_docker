@@ -253,6 +253,9 @@ class HubTests(unittest.TestCase):
         req = urllib.request.Request(self.base + "/api/events", headers={"Host": "odoo.docker.localhost"})
         with urllib.request.urlopen(req, timeout=5) as r:
             self.assertTrue(r.headers["Content-Type"].startswith("text/event-stream"))
+            self.assertEqual(r.readline().decode(), "event: hello\n")   # the token of this hub process
+            self.assertEqual(r.readline().decode(), f"data: {self.hub.TOKEN}\n")
+            r.readline()
             first = r.readline().decode()
             self.assertTrue(first.startswith("data: "))
             self.assertEqual(json.loads(first[6:])[0]["name"], "demo")

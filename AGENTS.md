@@ -55,7 +55,7 @@ Stdio alternative (client spawns the process): `docker exec -i -u utils <project
 | `odoo_status` | containers, Odoo process, selected DB, versions, URLs, .env settings — call first |
 | `odoo_update(modules, keep, wait, database)` | restart with `-u modules` and return the ready/error report; `database` (name, comma list, `all`) required when `SELECTED_DB` is empty (multi-db mode) |
 | `odoo_restart(wait)` / `odoo_start(wait)` / `odoo_stop()` | process control (no module update) |
-| `odoo_logs(lines, grep, errors_only)` | read the logs pane; `errors_only` = tracebacks of the current run |
+| `odoo_logs(lines, grep, errors_only, level)` | read the logs pane; `errors_only` = tracebacks of the current run; `level` (`WARNING`, `ERROR`…) = every record of the current run at that level and above |
 | `odoo_logs_since(since, grep)` | lines logged after a timestamp (`since` = a previous call's marker, printed at the end of each result): read only what your last `odoo_update` produced |
 | `odoo_wait_ready(timeout)` | block until the current start finished |
 | `odoo_shell(code, database)` | run Python in `odoo shell` (`env`, `self`); rolled back unless `env.cr.commit()` |

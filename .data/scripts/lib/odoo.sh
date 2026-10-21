@@ -105,6 +105,10 @@ launch_odoo() {
         [ "$after" -gt "$before" ] && break
         sleep 0.1
     done
+    # The outcome of the start (.last_start: ready|errors|failed|dead) is written
+    # by 'logs.sh --wait'. Callers that do not wait themselves (no -w) run it in
+    # the background so that the hub and the status bar never stay on 'starting'.
+    [ "${WAIT:-false}" = true ] || (nohup bash "${_PROJECT_ROOT}/.data/scripts/internal/logs.sh" --wait >/dev/null 2>&1 &)
 }
 odoo_header_count() {
     docker exec "$ODOO_CONTAINER" tmux capture-pane -t "${ODOO_TMUX_SESSION}:0.1" -p -S - 2>/dev/null \

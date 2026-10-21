@@ -144,6 +144,8 @@ def t_odoo_logs(a):
         args += ["-g", a["grep"]]
     if a.get("errors_only"):
         args += ["-e"]
+    if a.get("level"):
+        args += ["-l", str(a["level"])]
     rc, t = script("logs", *args)
     return text_result(t, rc != 0)
 
@@ -392,8 +394,10 @@ TOOLS = [
       "database": {"type": "string", "description": "default: SELECTED_DB; name, comma list or 'all'. Odoo then serves only these until the next restart"}},
      ["modules"]),
     ("odoo_logs", t_odoo_logs,
-     "Read the Odoo logs pane. lines (default 100), grep (case-insensitive filter), errors_only (ERROR/CRITICAL/Traceback blocks of the current run).",
-     {"lines": {"type": "integer", "default": 100}, "grep": {"type": "string"}, "errors_only": {"type": "boolean", "default": False}}),
+     "Read the Odoo logs pane. lines (default 100), grep (case-insensitive filter), errors_only (ERROR/CRITICAL/Traceback blocks of the current run), "
+     "level (DEBUG|INFO|WARNING|ERROR|CRITICAL: every record of the current run at that level and above, with its traceback lines; ignores lines).",
+     {"lines": {"type": "integer", "default": 100}, "grep": {"type": "string"}, "errors_only": {"type": "boolean", "default": False},
+      "level": {"type": "string", "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]}}),
     ("odoo_wait_ready", t_odoo_wait_ready,
      "Block until the current Odoo start finished; returns ready/timeout and the error blocks if any.",
      {"timeout": {"type": "integer", "default": 120}}),

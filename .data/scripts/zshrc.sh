@@ -76,6 +76,7 @@ _test_fn()       { "$_CMDS/test.sh" "$@"; }
 watch()          { "$_CMDS/watch.sh" "$@"; }
 alias test='noglob _test_fn'   # alias (not function): the builtin stays available to scripts
 debug()          { "$_CMDS/debug.sh" "$@"; }
+logs()           { "$_CMDS/logs.sh" "$@"; }
 
 # Database
 database()       { "$_CMDS/database.sh" "$@"; }

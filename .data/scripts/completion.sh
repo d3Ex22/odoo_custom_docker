@@ -71,7 +71,7 @@ _start_cmd() { _describe_opts '-w:Wait until ready' '--wait:Wait until ready'; }
 _database() {
     local -a subcommands
     subcommands=(
-        'list:List databases'
+        'list:List databases and backups'
         'select:Set the active database'
         'drop:Drop a database'
         'clone:Copy a database'
@@ -141,11 +141,16 @@ _upgrade_code_cmd() {
     o=('--from:Source version' '--to:Target version' '--module:Module name(s)' '--dry-run:Preview only' '-f:Run every tool' '--force:Run every tool' '-a:All paths and modules' '--all-files:All paths and modules')
     _describe_opts "${o[@]}"
 }
+_logs_cmd() {
+    if [[ "${words[CURRENT-1]}" == (-g|--grep) ]]; then return
+    elif [[ "${words[CURRENT]}" == -* ]]; then _describe_opts '-g:Keep the matching lines' '--grep:Keep the matching lines'
+    else _describe_opts 'warning:Warnings and errors (default)' 'error:Errors only' 'critical:Critical only' 'info:Everything but debug' 'debug:Everything'; fi
+}
 _debug_cmd() { _describe_opts 'on:Odoo under debugpy + launch.json' 'off:Plain start' 'status:State and attach port'; }
 _env_update_cmd() { _describe_opts '-n:Preview only' '--dry-run:Preview only' '--ref:Template branch / tag' '--from:Local template copy'; }
 _help_cmd() {
     local -a c
-    c=(start s stop reboot r update u shell test watch debug database db psql rebuild pull env-update translation pre-commit pc requirements pip upgrade-code migrate grok)
+    c=(start s stop reboot r update u shell test watch debug logs database db psql rebuild pull env-update translation pre-commit pc requirements pip upgrade-code migrate grok)
     _describe 'command' c
 }
 
@@ -154,6 +159,7 @@ compdef _update update u _update_fn
 compdef _start_cmd start s reboot r
 compdef _test_cmd test _test_fn
 compdef _watch_cmd watch
+compdef _logs_cmd logs
 compdef _database database db
 compdef _shell_cmd shell
 compdef _psql_cmd psql

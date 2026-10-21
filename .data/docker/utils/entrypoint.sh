@@ -169,6 +169,7 @@ _h() { printf "\n ${CPRIMARY}%s${RST}\n" "$1"; }
                     _w ""   "test [-t TAGS] <modules>"    "Module tests on a throwaway database"
                     _w ""   "debug [on|off]"              "debugpy + .vscode/launch.json"
                     _w ""   "watch [on|off]"              "u <module> on each saved __manifest__.py"
+                    _w ""   "logs [level] [-g PAT]"       "Warnings / errors of the current run (WARNING · ERROR · INFO)"
     _h "Database";  _w "db" "database <cmd>"              "list · select · drop · clone · backup · restore · sanitize"
                     _w ""   "psql [-d db] [args]"         "PostgreSQL shell / query"
     _h "Project";   _w ""   "rebuild [-a] [-n] [-nc]"     "Build the images of .env (missing · all · nightly)"

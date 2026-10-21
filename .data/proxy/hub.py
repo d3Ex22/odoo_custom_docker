@@ -625,6 +625,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
+            # the hub's token identifies this process: a page connected to a previous one (hub recreated
+            # by env-update) reloads itself to run the current JS / CSS
+            self.wfile.write(f"event: hello\ndata: {TOKEN}\n\n".encode())
             self.wfile.write(f"data: {events.snapshot() or json.dumps(projects())}\n\n".encode())
             self.wfile.flush()
             while True:

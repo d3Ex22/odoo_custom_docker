@@ -4,7 +4,7 @@
   // colours of hub.css, read once (the favicon is drawn on a canvas and needs literal values)
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue("--" + n).trim();
   const PALETTE = ["yellow", "cyan", "red", "purple", "green", "orange", "fg"].map(cssVar);
-  const tabs = document.getElementById("tabs"), frames = document.getElementById("frames"), empty = document.getElementById("empty"), icon = document.getElementById("icon"), config = document.getElementById("config");
+  const tabs = document.getElementById("tabs"), frames = document.getElementById("frames"), empty = document.getElementById("empty"), icon = document.getElementById("icon"), config = document.getElementById("config"), wait = document.getElementById("wait");
   let projects = [], current = null;   // current = {project, view}
   const port = location.port ? ":" + location.port : "";   // proxy on a non-default port (tests)
   const store = {
@@ -97,6 +97,7 @@
     }
     [...frames.children].forEach(x => x.classList.toggle("active", x === f));
     render();
+    waiting();   // the "odoo starting" panel only belongs to the odoo view: drop it at once when leaving it
   }
 
   function favicon(color, letter) {
@@ -107,15 +108,27 @@
 
   function dotClass(s, key) {
     if (!s) return "";
-    if (key === "odoo") return !s.odoo ? "off" : ["errors", "failed", "dead"].includes(s.start) ? "warn" : "on";
+    if (key === "odoo") return !s.odoo || BLOCKED.includes(s.start) ? "off" : s.start === "errors" ? "warn" : "on";
     if (key === "db") return s.db ? "on" : "off";
     if (key === "ent") return s.enterprise === "ok" ? "on" : s.enterprise === "mismatch" ? "warn" : "off";
     return "";
   }
+  // outcome of the last start: an error blocked Odoo (registry not loaded, process gone), a warning means it serves
+  // but tracebacks were logged (a module failed to update...)
+  const BLOCKED = ["failed", "dead"];
+  const nErr = s => s.start_errors + " error" + (s.start_errors > 1 ? "s" : "");
+  function startMark(s) {   // {mark, cls, text} or null when the last start went fine
+    if (!s || !s.start) return null;
+    if (BLOCKED.includes(s.start)) return {mark: "✖", cls: "err", text: s.start === "dead" ? "odoo exited at start" : "start failed: database not loaded" + (s.start_errors ? " (" + nErr(s) + ")" : "")};
+    if (s.start === "errors") return {mark: "⚠", cls: "warn", text: "started with " + nErr(s) + " in the log"};
+    if (s.start === "timeout") return {mark: "⚠", cls: "warn", text: "not ready when the start watch gave up"};
+    return null;
+  }
   function tooltip(s) {
     if (!s) return "no status yet";
     if (s.setup) return "first start: confirm the configuration (setup)";
-    return ["odoo " + (s.odoo ? "running" : "stopped") + (s.start ? " · last start " + s.start + (s.start_errors ? " (" + s.start_errors + " errors)" : "") : ""),
+    const sm = startMark(s);
+    return ["odoo " + (s.odoo ? "running" : "stopped") + (sm ? " · " + sm.mark + " " + sm.text : s.start ? " · last start " + s.start : ""),
             "postgres " + (s.db ? "up" : "down"), "mcp " + (s.mcp ? "up" : "down"),
             "enterprise " + (s.enterprise === "ok" ? s.enterprise_version : s.enterprise === "mismatch" ? s.enterprise_version + " ≠ " + s.odoo_version : "missing"),
             "database " + (s.database || "multi-db"), "odoo " + s.odoo_version + (s.build ? "." + s.build : ""),
@@ -230,7 +243,7 @@
       const s = p.status, busy = p.start && ["starting", "restarting", "stopping"].includes(p.start.state);
       const tab = document.createElement("div");
       tab.className = "tab" + (active ? " active" : "") + (p.running ? "" : " off") + (busy || p.progress ? " busy" : "");
-      tab.draggable = true; tab.dataset.name = p.name;
+      tab.dataset.name = p.name;   // the face is the drag handle (set below): a slight move while clicking a menu entry must not start a drag
       // elapsed time of a compose action, ticking on the page (data-t0 elements are updated every second)
       const t0 = busy ? Date.now() - (p.start.elapsed || 0) * 1000 : 0;
       const timer = (label, cls) => busy ? '<span class="' + cls + '" data-t0="' + t0 + '" data-label="' + label + '">' + label + " " + clock(t0) + "</span>" : "";
@@ -255,6 +268,8 @@
       }
       const dots = p.running ? '<span class="dots" title="' + esc(tooltip(s)) + '">' + ["odoo", "db", "ent"].map(k => '<i class="dot ' + dotClass(s, k) + '"></i>').join("") + "</span>" : "";
       const flag = s && s.rebuild ? '<span class="flag">rebuild</span>' : "";
+      const sm = p.running && !busy && startMark(s);
+      const startFlag = sm ? '<span class="flag start ' + sm.cls + '" title="' + esc(sm.text) + '">' + sm.mark + (s.start_errors ? " " + s.start_errors : "") + "</span>" : "";
       const env = busy ? "" : envPending(p).length ? '<span class="flag env l' + envLevel(p) + '" title="apply the .env changes">' + (LEVEL[envLevel(p)] || LEVEL[1]).label + "</span>" : "";
       const upd = !busy && envUpdate(p) ? '<span class="flag upd" title="environment v' + esc(envUpdate(p).available) + ' available">v' + esc(envUpdate(p).available) + "</span>" : "";
       const setup = !busy && needsSetup(p) ? '<span class="flag setup" title="first start: confirm the configuration">setup</span>' : "";
@@ -263,8 +278,9 @@
       const stepT0 = p.progress ? Date.now() - (p.progress.elapsed || 0) * 1000 : t0;
       const viewTag = busy || p.progress ? '<span class="view run" data-t0="' + stepT0 + '" data-label="' + esc(step || p.start.state) + '">' + esc(step || p.start.state) + " " + clock(stepT0) + "</span>"
                                          : '<span class="view">' + (LABEL[view] || view) + "</span>";
-      tab.innerHTML = '<div class="face"><a href="' + href + '"><span class="idx">' + pad2(n + 1) + '</span><span class="name">' + esc(p.name) + "</span>" + viewTag + dots + flag + env + upd + setup + "</a>" +
+      tab.innerHTML = '<div class="face"><a href="' + href + '"><span class="idx">' + pad2(n + 1) + '</span><span class="name">' + esc(p.name) + "</span>" + viewTag + dots + startFlag + flag + env + upd + setup + "</a>" +
         '<span class="caret">▼</span></div><div class="menu">' + menu + "</div>";
+      tab.querySelector(".face").draggable = true;
       tab.querySelector(".caret").addEventListener("click", e => { e.stopPropagation(); const o = tab.classList.contains("open"); closeMenus(); tab.classList.toggle("open", !o); });
       if (!p.running) tab.querySelector(".face>a").addEventListener("click", e => { e.preventDefault(); const o = tab.classList.contains("open"); closeMenus(); tab.classList.toggle("open", !o); e.stopPropagation(); });
       const envFlag = tab.querySelector(".flag.env");
@@ -281,8 +297,8 @@
     tick();
     // title + favicon of the current project
     if (current) {
-      const p = byName(current.project), bad = p && p.status && ["errors", "failed", "dead"].includes(p.status.start);
-      document.title = (bad ? "⚠ " : "") + current.project.toUpperCase() + " · " + LABEL[current.view];
+      const p = byName(current.project), sm = p && p.running && startMark(p.status);
+      document.title = (sm ? sm.mark + " " : "") + current.project.toUpperCase() + " · " + LABEL[current.view];
       favicon(color[current.project], current.project[0].toUpperCase());
     } else { document.title = "Odoo"; favicon(cssVar("red"), "O"); }
   }
@@ -444,6 +460,7 @@
     let es = null, fallback = null;
     function connect() {
       es = new EventSource("/api/events");
+      es.addEventListener("hello", e => { if (e.data !== TOKEN) location.reload(); });   // hub restarted: new token, new files
       es.onmessage = e => { try { applyState(JSON.parse(e.data)); } catch (err) { /* partial frame */ } if (fallback) { clearInterval(fallback); fallback = null; } };
       es.onerror = () => { if (!fallback) fallback = setInterval(refresh, 5000); };   // EventSource reconnects by itself; poll meanwhile
     }
@@ -452,20 +469,27 @@
   })();
 
   // ---- Odoo not answering yet (starting / stopped): a panel instead of a 502 in the frame; the frame reloads when it is up ----
-  const wait = document.getElementById("wait"), wasDown = {};
+  // A restart shorter than a status tick is never seen as "down": the start timestamp tells it, and the frame
+  // (left on the proxy error page) is reloaded as well.
+  const wasDown = {}, seenStart = {};
   function waiting() {
     const p = current && byName(current.project), s = p && p.status;
-    const down = !!(p && p.running && current.view === "odoo" && s && (!s.odoo || s.start === "starting"));
+    if (p && s && s.start_at && s.odoo && s.start !== "starting") {
+      if (seenStart[p.name] && seenStart[p.name] !== s.start_at) wasDown[p.name] = true;
+      seenStart[p.name] = s.start_at;
+    }
+    const down = !!(p && p.running && current.view === "odoo" && s && (!s.odoo || s.start === "starting" || s.start === "failed"));
     wait.classList.toggle("on", down);
     if (down) {
       wait.style.setProperty("--c", colors()[p.name]);
-      const what = !s.odoo ? (s.setup ? "waiting for the first-start confirmation" : s.start === "dead" || s.start === "failed" ? "odoo stopped (" + s.start + ")" : "odoo process stopped")
+      const what = !s.odoo ? (s.setup ? "waiting for the first-start confirmation" : s.start === "dead" ? "odoo exited at start" : "odoo process stopped")
+                           : s.start === "failed" ? "odoo blocked: start failed"
                            : "odoo starting" + (s.database ? " · " + esc(s.database) : "");
       wait.innerHTML = '<div class="big">// ' + what + "</div>" +
-        (s.start_errors ? '<div class="warn">' + s.start_errors + " error" + (s.start_errors > 1 ? "s" : "") + " at the last start</div>" : "") +
+        (startMark(s) ? '<div class="' + startMark(s).cls + '">' + startMark(s).mark + " " + esc(startMark(s).text) + "</div>" : "") +
         (p.last ? '<div class="last">' + esc(p.last.action) + (p.last.detail ? " · " + esc(p.last.detail) : "") + "</div>" : "") +
         '<div class="acts">' + (p.logs ? '<a href="#' + p.name + '/logs">logs</a>' : "") + (p.utils ? '<a href="#' + p.name + '/utils">utils</a>' : "") +
-        (!s.odoo && !s.setup ? '<button class="odoo-restart" data-p="' + esc(p.name) + '">restart odoo</button>' : "") + "</div>";
+        ((!s.odoo || s.start === "failed") && !s.setup ? '<button class="odoo-restart" data-p="' + esc(p.name) + '">restart odoo</button>' : "") + "</div>";
       wasDown[p.name] = true;
     } else if (p && wasDown[p.name] && s && s.odoo && s.start !== "starting") {   // back: the frame showed the proxy error page
       wasDown[p.name] = false;
@@ -507,7 +531,7 @@
 
   // ---- drag and drop: reorder the tabs (alt+1..9 follow the new order) ----
   let dragging = null;
-  tabs.addEventListener("dragstart", e => { const t = e.target.closest(".tab"); if (!t) return; dragging = t.dataset.name; closeMenus(); t.classList.add("drag"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragging); });
+  tabs.addEventListener("dragstart", e => { if (e.target.closest(".menu")) { e.preventDefault(); return; } const t = e.target.closest(".tab"); if (!t) return; dragging = t.dataset.name; closeMenus(); t.classList.add("drag"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragging); });
   tabs.addEventListener("dragend", () => { dragging = null; tabs.querySelectorAll(".drag, .over").forEach(t => t.classList.remove("drag", "over")); });
   tabs.addEventListener("dragover", e => {
     if (!dragging) return;
@@ -526,7 +550,20 @@
     moveTab(name, after ? names[i + 1] || null : t.dataset.name);
   });
   document.addEventListener("click", () => { closeMenus(); closeConfig(); });
-  window.addEventListener("blur", () => { closeMenus(); closeConfig(); });   // click inside an iframe
+  // A click inside an iframe never reaches this document: the only signal is the window losing focus.
+  // Odoo (home menu) grabs the focus back a few ms after its frame lost it: such a blur is not a click.
+  let focusedAt = 0, fromFrame = false;
+  window.addEventListener("focus", () => { focusedAt = performance.now(); });
+  window.addEventListener("blur", () => { if (performance.now() - focusedAt > 300) { closeMenus(); closeConfig(); } });
+  // Same grab breaks typing in the hub's inputs: hide the frame while Odoo tries (not rendered = not focusable).
+  document.addEventListener("mousedown", () => { fromFrame = document.activeElement?.tagName === "IFRAME"; }, true);
+  document.addEventListener("focusin", e => {
+    if (!fromFrame || !e.target.matches("input, textarea, select")) return;
+    fromFrame = false;
+    const shielded = [...document.querySelectorAll("iframe.active")];
+    shielded.forEach(f => { f.style.visibility = "hidden"; });
+    setTimeout(() => shielded.forEach(f => { f.style.visibility = ""; }), 120);
+  });
   tabs.addEventListener("click", async e => {
     const b = e.target.closest("button");
     if (b) {
@@ -546,7 +583,12 @@
       }
       closeMenus(); refresh(); return;
     }
-    if (e.target.closest(".menu a")) closeMenus();
+    const a = e.target.closest(".menu a");
+    if (a && a.getAttribute("href").startsWith("#")) {   // a view of the project
+      e.preventDefault(); e.stopPropagation(); closeMenus();
+      const [project, view] = a.getAttribute("href").slice(1).split("/");
+      select({project, view});
+    } else if (a) closeMenus();
   });
   window.addEventListener("hashchange", () => { const s = fromHash(); if (s) select(s); });
   // keyboard: only when the focus is on this page (not inside a terminal / Odoo frame)

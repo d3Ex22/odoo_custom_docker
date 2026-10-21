@@ -5,7 +5,9 @@ set -uo pipefail
 # Internal: odoo_logs* / odoo_wait_ready MCP tools, start/reboot/update -w,
 # docker exec. Humans read the logs in the hub (logs tab). Not a utils command.
 # ============================================================================
-# Usage: logs [-n N] [-g PATTERN] [-e] [-w [SECONDS]] [--since TS] [--mark] [--clear]
+# Usage: logs [-n N] [-g PATTERN] [-e] [-l LEVEL] [-w [SECONDS]] [--since TS] [--mark] [--clear]
+#   -l LEVEL: records of the current run at LEVEL and above (DEBUG|INFO|WARNING|ERROR|CRITICAL),
+#            with their continuation lines (tracebacks); the 'logs' utils command shows them in a pane.
 # ============================================================================
 
 source /home/utils/odoo_custom_docker/.data/scripts/common.sh
@@ -14,6 +16,7 @@ source /home/utils/odoo_custom_docker/.data/scripts/common.sh
 LINES=50
 PATTERN=""
 ERRORS_ONLY=false
+LEVEL=""
 WAIT=false
 WAIT_SECONDS=120
 CLEAR=false
@@ -26,6 +29,8 @@ while [[ $# -gt 0 ]]; do
         -n|--lines) LINES="${2:-}"; [ -z "$LINES" ] && die "-n needs a number of lines"; shift 2 ;;
         -g|--grep) PATTERN="${2:-}"; [ -z "$PATTERN" ] && die "-g needs a pattern"; shift 2 ;;
         -e|--errors) ERRORS_ONLY=true; shift ;;
+        -l|--level) LEVEL=$(echo "${2:-}" | tr a-z A-Z); shift 2
+            case "$LEVEL" in DEBUG|INFO|WARNING|ERROR|CRITICAL) ;; WARN) LEVEL=WARNING ;; *) die "-l needs a level: DEBUG, INFO, WARNING, ERROR or CRITICAL" ;; esac ;;
         -w|--wait)
             WAIT=true; shift
             if [[ "${1:-}" =~ ^[0-9]+$ ]]; then WAIT_SECONDS="$1"; shift; fi ;;
@@ -66,6 +71,15 @@ since_ts() {
 # Lines since the last start header printed by odoo_header.sh.
 current_run() {
     capture - | awk '/Addon paths:/ { buf = "" } { buf = buf $0 "\n" } END { printf "%s", buf }'
+}
+
+# Records at LEVEL and above (a record = a log line with its continuation lines).
+at_level() {
+    awk -v min="$1" '
+        BEGIN { rank["DEBUG"] = 0; rank["INFO"] = 1; rank["WARNING"] = 2; rank["ERROR"] = 3; rank["CRITICAL"] = 4; show = 0 }
+        /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9],[0-9]+ [0-9]+ [A-Z]+ / { show = (rank[$4] >= rank[min]) }
+        show { print }
+    '
 }
 
 # Error blocks: from an ERROR/CRITICAL/Traceback line until the next INFO line.
@@ -135,6 +149,14 @@ if $WAIT; then
             echo "$run" | tail -20 | sed 's/^/  /'
             exit 1 ;;
     esac
+fi
+
+if [ -n "$LEVEL" ]; then
+    out=$(current_run | at_level "$LEVEL")
+    [ -n "$PATTERN" ] && out=$(echo "$out" | grep -i -- "$PATTERN")
+    if [ -z "$out" ]; then ui_ok "No ${LEVEL}${PATTERN:+ matching '$PATTERN'} in the current run"; exit 0; fi
+    echo "$out" | highlight
+    exit 0
 fi
 
 if $ERRORS_ONLY; then

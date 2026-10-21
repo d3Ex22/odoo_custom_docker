@@ -28,10 +28,10 @@ trap cleanup EXIT
 show_help() {
     h_name "db" "Database management"
     h_sec "USAGE"
-    h_use "db                         overview (selected DB + list)"
+    h_use "db                         overview (selected DB, databases, backups)"
     h_use "db <command> [options]"
     h_sec "COMMANDS"
-    h_opt "list" "List databases (size, Odoo version)"
+    h_opt "list" "List databases (size, Odoo version) and the backups of ./db_files/"
     h_opt "select [name]" "Set the active database and reboot Odoo"
     h_opt "drop <name> | drop -f" "Drop a database (-f: the active one, Odoo recreates it)"
     h_opt "clone <src> <dst>" "Copy a database (and its filestore)"
@@ -294,6 +294,17 @@ EOS
     done <<< "$rows"
 }
 
+print_backup_table() {   # backups available in ./db_files/ (db restore -F)
+    local files f
+    files=$(list_backup_files)
+    echo
+    if [ -z "$files" ]; then ui_note "no backup in ./db_files/"; return; fi
+    printf "  ${CMUTED}  %-50s %-10s %s${RST}\n" "BACKUP (./db_files/)" "SIZE" "MODIFIED"
+    while IFS= read -r f; do
+        printf "    %-50s %-10s ${CMUTED}%s${RST}\n" "$(basename "$f")" "$(file_size "$f")" "$(date -r "$f" '+%Y-%m-%d %H:%M')"
+    done <<< "$files"
+}
+
 anonymize_db() {
     # test.test is reserved (RFC 2606): fields stay valid, nothing can reach a
     # real customer (neutralize also disables the outgoing mail servers).
@@ -449,6 +460,7 @@ case "${1:-}" in
             printf "  Selected database: ${CMUTED}none (multi-db mode)${RST}\n\n"
         fi
         print_db_table
+        print_backup_table
         echo
         h_opt "db select [name]" "Set the active database"
         h_opt "db backup [-fs] [name]" "Backup to ./db_files/"
@@ -471,6 +483,7 @@ case "$SUB" in
         [ $# -gt 0 ] && die "db list takes no argument"
         echo
         print_db_table
+        print_backup_table
         echo ;;
 
     # ---------------------------------------------------------------- select

@@ -166,9 +166,13 @@ to refresh, ever.
 - **`ODOO` pill**: the current view (`ODOO`, `LOGS`, `UTILS`, `MAIL`, `MCP`). Every opened view stays
   mounted when you switch tabs: Odoo keeps its page, the terminals keep their scrollback.
 - **Three dots**: the Odoo process, PostgreSQL and Enterprise — green ok, red down / missing, orange
-  when Odoo started **with errors** or Enterprise is on another series than Odoo. Hover them: the
-  tooltip gives the detail — last start and its error count, MCP up / down, Enterprise version, selected
-  database, Odoo version and build.
+  Enterprise on another series than Odoo. Hover them: the tooltip gives the detail — outcome of the last
+  start, MCP up / down, Enterprise version, selected database, Odoo version and build.
+- **Outcome of the last start**, told apart because one blocks Odoo and the other does not: red `✖`
+  (dot, flag, browser title) when the start **failed** — database not loaded, process exited — Odoo is
+  not serving and the panel offers **restart odoo**; orange `⚠ N` when Odoo is up but **N errors** were
+  logged during the start (a module that failed to update…). The utils status bar colours its `ODOO`
+  pill the same way.
 - **Progress** replaces the view pill during long actions: `starting · 0:04` while Odoo starts,
   `odoo 3/7 · 1:20` during a `rebuild` (current image, elapsed time counting live).
 - **Flags** appear only when something is due:
@@ -380,13 +384,14 @@ Exit codes: `0` ok, `1` error, `2` with `-w`: Odoo started **with errors** (the 
 | `test [-t TAGS] [--on DB] [--keep] [--no-demo] [--coverage] [-v] <modules>` | | Run the module tests (`--test-enable`) on a throwaway `test_<module>_<time>` DB — fresh with demo data and `-i`, or a clone of `--on DB` with `-u` — then drop it. The running Odoo is untouched; exit 1 if a test failed; full log in `.data/volumes/shared/tests/`. `--coverage` prints the coverage of the tested modules and writes an HTML report under `.data/volumes/odoo-container/odoo/coverage/` |
 | `debug [on\|off]` | | Run Odoo under **debugpy** and write `.vscode/launch.json` (`Attach: Odoo (<name>)`, path mappings for your addons, Odoo and Enterprise). The port is published on a free host port (or `DEBUGPY_PORT`); `debug` alone shows it. `DEBUGPY=true` persists across `r` / `u` |
 | `watch [on\|off]` | | Side pane that runs `u <module> -w` each time a `__manifest__.py` under `addons/` is saved (only manifests trigger it). Persisted as `AUTO_UPDATE` in `.env`, reopened on `compose up` |
+| `logs [LEVEL] [-g PATTERN]` | | Records of the **current run** at `LEVEL` and above (`DEBUG`, `INFO`, `WARNING` — default —, `ERROR`, `CRITICAL`), tracebacks included, in a side pane: `logs error` after a `u`, `logs info -g my_module`. The live log stays in the hub's Logs tab |
 
 ### Database (`db`)
 
 | Command | Description |
 |---------|-------------|
 | `db` | Overview: selected DB and the list |
-| `db list` | Databases with size and Odoo version, selected one marked ● |
+| `db list` | Databases with size and Odoo version, selected one marked ●, then the backups of `./db_files/` |
 | `db select [name]` | Set `SELECTED_DB` and reboot Odoo (picker when omitted; confirms creation if the DB does not exist) |
 | `db drop [-f] <name>` | Drop a DB and its filestore. `-f` resets the **selected** DB (stop → drop → start on a fresh one) |
 | `db clone [-f] <src> <dst>` | Copy a DB (and filestore); `-f` replaces `dst` |
@@ -439,7 +444,7 @@ the plain backends under `.data/scripts/internal/` (`status.sh`, `conf.sh`, `log
 The utils container runs an MCP server (Streamable HTTP, started with the container, served by the
 proxy at `http://<name>.mcp.docker.localhost/mcp`) exposing the commands above as tools:
 `odoo_status`, `odoo_update`, `odoo_restart` / `odoo_start` / `odoo_stop`, `odoo_wait_ready`,
-`odoo_logs`, `odoo_logs_since`, `odoo_shell` / `odoo_shell_commit`, `odoo_test` (with `coverage`),
+`odoo_logs` (`level` = records of the current run at that level and above), `odoo_logs_since`, `odoo_shell` / `odoo_shell_commit`, `odoo_test` (with `coverage`),
 `odoo_model_info`, `odoo_xmlid`, `odoo_module_list`, `db_list` / `db_select` / `db_backup` /
 `db_restore` / `db_drop` / `db_clone` / `db_query`, `conf_set`, `check_versions`, `repos_pull`,
 `translation_export`, `pre_commit`, `requirements_install` — plus two prompts (`migrate_module`,
@@ -631,7 +636,7 @@ MCP server are restarted by the command itself when their files changed (in the 
 `.data/volumes/shared/env-update.log`). `.data/.template_rev` records the template commit so the next
 run also removes files the template dropped. `-n` previews without writing.
 
-**Releases.** `.data/VERSION` is the release of the environment (`4.0.0`, see
+**Releases.** `.data/VERSION` is the release of the environment (`4.0.1`, see
 [`CHANGELOG.md`](CHANGELOG.md)). Every hour the status loop compares it with the template's on
 `ENV_TEMPLATE_REF` (empty = the repository's default branch, i.e. the current release line — `v4`);
 when a newer one is published, the tab shows a `v4.1` flag and the hub proposes **update env** (runs
